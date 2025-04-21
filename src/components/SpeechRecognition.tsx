@@ -34,7 +34,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       const timestamp = new Date().getTime();
       const response = await axios.get(`http://localhost:8000/greeting?t=${timestamp}`);
       
-      if (response.data && response.data.audio) {
+      if (response.data?.greeting && response.data?.audio) {
         // Play the greeting audio - add cache buster to audio URL too
         if (audioPlayerRef.current) {
           // The URL already has a timestamp from the backend
@@ -44,6 +44,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           audioPlayerRef.current.onloadedmetadata = () => {
             audioPlayerRef.current?.play().catch(err => {
               console.error("Error playing audio:", err);
+              setError('Failed to play audio.');
             });
           };
           
@@ -52,10 +53,15 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
             onTranscriptUpdate("AI Tutor: " + response.data.greeting);
           }
         }
+      } else {
+        throw new Error('Invalid response format');
       }
     } catch (error) {
       console.error('Error getting greeting:', error);
-      setError('Failed to play greeting.');
+      setError('Failed to connect to AI Tutor. Please check if the server is running.');
+      if (onTranscriptUpdate) {
+        onTranscriptUpdate("System: Connection error - Please check if the AI Tutor server is running.");
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -138,14 +144,14 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       });
       
       // Handle the response
-      if (response.data) {
+      if (response.data?.question && response.data?.answer) {
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
           onTranscriptUpdate("AI Tutor: " + response.data.answer);
         }
         
-        // Play the response audio
+        // Play the response audio if available
         if (audioPlayerRef.current && response.data.audio) {
           // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
@@ -154,13 +160,55 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           audioPlayerRef.current.onloadedmetadata = () => {
             audioPlayerRef.current?.play().catch(err => {
               console.error("Error playing audio:", err);
+              setError('Failed to play audio response.');
             });
           };
         }
+      } else {
+        // If response format is invalid but request succeeded
+        console.error('Invalid response format received:', response.data);
+        throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error('Error processing audio:', error);
-      setError('Failed to process audio.');
+      let errorMessage = 'Failed to process audio. Please check server connection.';
+      let logMessage = 'Error processing audio:';
+
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          // that falls out of the range of 2xx
+          logMessage = `Backend error: ${error.response.status}`;
+          console.error(logMessage, error.response.data);
+          // Try to get the specific error message from the backend response
+          errorMessage = `Error: ${error.response.data?.error || 'Unknown backend error'}`;
+        } else if (error.request) {
+          // The request was made but no response was received
+          logMessage = 'No response received from server.';
+          console.error(logMessage, error.request);
+          errorMessage = 'Could not connect to the AI Tutor server.';
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          logMessage = 'Axios request setup error:';
+          console.error(logMessage, error.message);
+          errorMessage = 'Failed to send request.';
+        }
+      } else if (error instanceof Error && error.message === 'Invalid response format') {
+         // Handle the specific "Invalid response format" error thrown earlier
+         logMessage = 'Invalid response format from backend.';
+         console.error(logMessage, error);
+         errorMessage = 'Received an unexpected response from the server.';
+      }
+       else {
+        // Handle non-Axios errors
+        logMessage = 'Unexpected error:';
+        console.error(logMessage, error);
+        errorMessage = 'An unexpected error occurred.';
+      }
+
+      setError(errorMessage);
+      if (onTranscriptUpdate) {
+        onTranscriptUpdate(`System: ${errorMessage}`);
+      }
     } finally {
       setIsProcessing(false);
     }

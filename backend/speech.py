@@ -12,10 +12,6 @@ TTS_OUTPUT_PATH = os.path.join(TTS_OUTPUT_DIR, TTS_OUTPUT_FILENAME)
 tts_model = TTS(model_name="tts_models/en/ljspeech/tacotron2-DDC", progress_bar=False, gpu=False)
 
 def generate_tts_audio(text: str) -> str:
-    """
-    Generate speech from text.
-    Always uses the same filename to avoid accumulating files.
-    """
     os.makedirs(TTS_OUTPUT_DIR, exist_ok=True)
     
     # Remove old file if it exists
@@ -37,9 +33,6 @@ stt_model = whisper.load_model("base")
 TEMP_AUDIO_PATH = "temp_audio.wav"
 
 def transcribe_audio(file_path: str) -> str:
-    """
-    Transcribe audio to text.
-    """
     # Copy the file to a standardized location to avoid accumulating temp files
     if file_path != TEMP_AUDIO_PATH:
         shutil.copy(file_path, TEMP_AUDIO_PATH)

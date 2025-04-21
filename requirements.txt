@@ -3,7 +3,7 @@
 fastapi
 uvicorn
 langchain
-transformers
+transformers>=4.30.0
 torch==2.2.2 --extra-index-url https://download.pytorch.org/whl/cpu
 sentencepiece
 TTS==0.22.0
@@ -14,3 +14,4 @@ python-multipart
 numpy==1.22.0
 langchain-community==0.2.0
 huggingface_hub[hf_xet]
+llama-cpp-python
