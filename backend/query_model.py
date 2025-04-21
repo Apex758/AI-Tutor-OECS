@@ -6,13 +6,17 @@ import os
 from huggingface_hub import hf_hub_download, login
 from llama_cpp import Llama
 
+# Global variable to hold the LLM
+global llm
+
 def setup_llamacpp_pipeline():
+    global llm
     # Login to Hugging Face
     hf_token = os.environ.get("HF_TOKEN")
     login(token=hf_token)
     
-    repo_id = "TheBloke/Llama-3.2-1B-GGUF"
-    filename = "llama-3.2-1b.q4_0.gguf"
+    repo_id = "bartowski/Llama-3.2-1B-Instruct-GGUF"
+    filename = "Llama-3.2-1B-Instruct-IQ3_M.gguf"
     
     try:
         # Pass token to download
@@ -57,6 +61,7 @@ def setup_llamacpp_pipeline():
         return setup_transformers_cpu_pipeline()
 
 def setup_transformers_cpu_pipeline():
+    global llm
     model_name = "meta-llama/Llama-3.2-1B"
     print("Using CPU-optimized transformers implementation")
     
@@ -99,6 +104,11 @@ You are a helpful tutor for primary school students.
 """
 
 def get_answer_from_text(text: str) -> str:
+    global llm
+    # Ensure llm is initialized
+    if 'llm' not in globals() or llm is None:
+        main()  # Initialize llm if not already done
+        
     formatted_prompt = prompt_template.format(query=text)
     response = llm(formatted_prompt)
     return response.strip()

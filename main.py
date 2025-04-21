@@ -38,6 +38,8 @@ class TranscriptUpdateRequest(BaseModel):
 # Store conversation history
 conversation_history = []
 
+# These are the updated route handlers for the main.py file
+
 @app.post("/tutor/speak")
 async def tutor_from_audio(file: UploadFile = File(...)):
     """
@@ -51,23 +53,41 @@ async def tutor_from_audio(file: UploadFile = File(...)):
         # Transcribe the audio to text
         text = transcribe_audio(TEMP_AUDIO_PATH)
         
-        # Get a response based on the transcript by passing to query model
-        answer = get_answer_from_text(text)
-        
-        # Update conversation history
-        conversation_history.append({"role": "user", "content": text})
-        conversation_history.append({"role": "assistant", "content": answer})
-        
-        # Generate audio for the response (this function handles reusing the same filename)
-        audio_file = generate_tts_audio(answer)
-        
-        return {
-            "question": text,
-            "answer": answer,
-            "audio": f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
-        }
+        try:
+            # Get a response based on the transcript by passing to query model
+            answer = get_answer_from_text(text)
+            
+            # Update conversation history
+            conversation_history.append({"role": "user", "content": text})
+            conversation_history.append({"role": "assistant", "content": answer})
+            
+            # Generate audio for the response (this function handles reusing the same filename)
+            audio_file = generate_tts_audio(answer)
+            
+            return {
+                "question": text,
+                "answer": answer,
+                "audio": f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+            }
+        except Exception as model_error:
+            print(f"Error with language model: {model_error}")
+            # Return a graceful error response with appropriate status code
+            error_response = {
+                "error": f"The AI model encountered an error: {str(model_error)}",
+                "question": text,
+                "answer": "I'm sorry, I had trouble processing your request. The AI model is currently experiencing issues. Please try again later."
+            }
+            
+            # Generate audio for the error message
+            audio_file = generate_tts_audio(error_response["answer"])
+            error_response["audio"] = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+            
+            return error_response
+            
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error in audio processing: {e}")
+        return {"error": str(e)}      
+        
         
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
