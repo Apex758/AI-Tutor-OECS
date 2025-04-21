@@ -8,6 +8,7 @@ torch==2.2.2 --extra-index-url https://download.pytorch.org/whl/cpu
 sentencepiece
 TTS==0.22.0
 whisper
+openai-whisper
 ffmpeg-python
 python-multipart
 numpy==1.22.0
