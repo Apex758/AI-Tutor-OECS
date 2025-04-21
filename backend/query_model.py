@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-from langchain_huggingface.llms import HuggingFacePipelinse
+from langchain_community.llms import HuggingFacePipeline  
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 
@@ -13,4 +13,4 @@ prompt = PromptTemplate.from_template("Explain the concept of {topic} in a way a
 chain = prompt | llm
 
 def get_answer_from_text(text: str) -> str:
-    return chain.run(topic=text)
+    return chain.invoke({"topic": text})

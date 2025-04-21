@@ -3,7 +3,7 @@ import Whiteboard from "./components/Whiteboard";
 import SpeechRecognition from "./components/SpeechRecognition";
 import CameraFeed from "./components/CameraFeed";
 import TranscriptViewer from "./components/TranscriptViewer";
-import { ArrowLeftCircle, ArrowRightCircle } from "lucide-react";
+import { ArrowLeftCircle, ArrowRightCircle, Mic, Book, Brain } from "lucide-react";
 
 const App: React.FC = () => {
   const [transcript, setTranscript] = useState<string>("");
@@ -15,13 +15,24 @@ const App: React.FC = () => {
   };
 
   // Function to update transcript that can be passed to SpeechRecognition
-  const updateTranscript = (newTranscript: string) => {
-    setTranscript(prev => prev + "\n" + newTranscript);
+  const updateTranscript = (newText: string) => {
+    setTranscript(prev => {
+      // Add a newline if there's already content
+      return prev ? `${prev}\n${newText}` : newText;
+    });
   };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50">
-      <header className="bg-white border-b px-4 py-2 shadow-sm">
+      <header className="bg-white border-b px-4 py-3 shadow-sm flex items-center">
+        <div className="flex items-center space-x-2">
+          <Brain className="h-6 w-6 text-blue-600" />
+          <h1 className="text-xl font-bold text-blue-900">AI Tutor</h1>
+        </div>
+        <div className="flex-grow"></div>
+        <div className="text-sm text-gray-500">
+          Interactive Learning Assistant
+        </div>
       </header>
       
       <div className="flex-grow flex relative overflow-hidden">
@@ -56,7 +67,11 @@ const App: React.FC = () => {
               </div>
               
               {/* Speech recognition controls */}
-              <div className="h-[50px] bg-white border-b border-gray-200 p-2">
+              <div className="h-[50px] bg-white border-b border-gray-200 p-2 flex items-center">
+                <div className="mr-2 flex items-center">
+                  <Mic className="w-4 h-4 text-gray-500 mr-1" />
+                  <span className="text-sm font-medium">Voice Control:</span>
+                </div>
                 <SpeechRecognition onTranscriptUpdate={updateTranscript} />
               </div>
               

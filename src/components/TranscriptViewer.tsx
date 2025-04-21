@@ -1,30 +1,40 @@
 import React, { useEffect, useRef } from 'react';
 
-interface TranscriptEntry {
-  speaker: string;
-  text: string;
-}
-
 interface TranscriptViewerProps {
-  transcript: TranscriptEntry[];
+  transcript: string;
 }
 
 const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript }) => {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  // Split the transcript string into lines
+  const transcriptLines = transcript.trim() ? transcript.split('\n') : [];
 
   useEffect(() => {
     // Scroll to the bottom of the transcript whenever it updates
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
+  const getLineStyle = (line: string) => {
+    if (line.startsWith('You:')) {
+      return 'mb-2 text-blue-800 self-start max-w-3/4';
+    } else if (line.startsWith('AI Tutor:')) {
+      return 'mb-2 text-green-800 self-end max-w-3/4 text-right';
+    } else {
+      return 'mb-2 text-gray-800';
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-gray-100 p-4 rounded-lg shadow-inner">
-      {transcript.length === 0 ? (
+      <h2 className="text-lg font-semibold mb-3">Conversation Transcript</h2>
+      
+      {transcriptLines.length === 0 ? (
         <p className="text-gray-500 italic">Transcript will appear here...</p>
       ) : (
-        transcript.map((entry, index) => (
-          <div key={index} className={`mb-2 ${entry.speaker === 'Speaker 1' ? 'text-blue-800 self-start' : 'text-green-800 self-end text-right'}`}>
-            <span className="font-semibold">{entry.speaker}:</span> {entry.text}
+        transcriptLines.map((line, index) => (
+          <div key={index} className={getLineStyle(line)}>
+            {line}
           </div>
         ))
       )}
