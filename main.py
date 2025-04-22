@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 import shutil
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 import json
 
 # Import our backend modules
 from backend.query_model import get_answer_from_text
 from backend.speech import transcribe_audio, generate_tts_audio, TEMP_AUDIO_PATH, TTS_OUTPUT_DIR
+from backend.rag_system import get_rag_system, Document, RAG_DOCS_DIR
 
 app = FastAPI()
 app.add_middleware(
@@ -28,12 +29,32 @@ app.mount("/tts_output", StaticFiles(directory=TTS_OUTPUT_DIR), name="tts_output
 WHITEBOARD_DIR = "whiteboard_images"
 os.makedirs(WHITEBOARD_DIR, exist_ok=True)
 
+# Ensure RAG_docs directory exists
+os.makedirs(RAG_DOCS_DIR, exist_ok=True)
+
 # Models for request/response
 class TTSRequest(BaseModel):
     text: str
 
 class TranscriptUpdateRequest(BaseModel):
     transcript: str
+    
+class DocumentInfo(BaseModel):
+    id: str
+    title: str
+    original_file: str
+    in_folder: bool
+    in_faiss: bool
+    last_modified: float
+
+class ScanResponse(BaseModel):
+    added: int
+    updated: int
+    total_docs: int
+    total_in_faiss: int
+    
+class RemoveDocumentRequest(BaseModel):
+    doc_id: str
 
 # Store conversation history
 conversation_history = []
@@ -174,6 +195,74 @@ async def process_whiteboard_image(file: UploadFile = File(...)):
         "detected_text": "This is a placeholder for detected text from the whiteboard image.",
         "saved_path": image_path
     }
+
+# =============== New RAG System Endpoints ===============
+
+@app.get("/rag/documents", response_model=List[DocumentInfo])
+async def get_documents():
+    """
+    Get the list of all documents in the RAG system.
+    """
+    try:
+        rag_system = get_rag_system()
+        return rag_system.get_document_list()
+    except Exception as e:
+        print(f"Error getting document list: {e}")
+        return {"error": str(e)}
+
+@app.post("/rag/scan", response_model=ScanResponse)
+async def scan_documents():
+    """
+    Scan the RAG_docs folder for new or updated documents.
+    """
+    try:
+        rag_system = get_rag_system()
+        result = rag_system.scan_rag_docs_folder()
+        return result
+    except Exception as e:
+        print(f"Error scanning RAG_docs folder: {e}")
+        return {"error": str(e)}
+
+@app.post("/rag/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Upload a document to the RAG_docs folder.
+    """
+    try:
+        # Save the file to the RAG_docs directory
+        file_path = os.path.join(RAG_DOCS_DIR, file.filename)
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Scan the folder to process the new file
+        rag_system = get_rag_system()
+        result = rag_system.scan_rag_docs_folder()
+        
+        return {
+            "message": f"File uploaded successfully: {file.filename}",
+            "scan_result": result
+        }
+    except Exception as e:
+        print(f"Error uploading document: {e}")
+        return {"error": str(e)}
+
+@app.post("/rag/remove")
+async def remove_document(request: RemoveDocumentRequest):
+    """
+    Remove a document from the RAG system (but not from the folder).
+    """
+    try:
+        rag_system = get_rag_system()
+        success = rag_system.remove_document(request.doc_id)
+        
+        if success:
+            return {"message": f"Document removed successfully: {request.doc_id}"}
+        else:
+            return {"error": f"Failed to remove document: {request.doc_id}"}
+    except Exception as e:
+        print(f"Error removing document: {e}")
+        return {"error": str(e)}
 
 # Cleanup endpoint to manually clean temporary files if needed
 @app.post("/cleanup")

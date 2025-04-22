@@ -4,6 +4,7 @@ import torch
 import os
 from huggingface_hub import hf_hub_download, login
 from llama_cpp import Llama
+from backend.rag_system import get_rag_system, format_retrieved_context
 
 # Global variable to hold the LLM
 global llm
@@ -93,6 +94,47 @@ def setup_transformers_cpu_pipeline():
     # Return the pipeline directly
     return pipe
 
+def get_rag_enhanced_prompt(query, prompt_template):
+    """
+    Enhance the prompt with relevant context from the RAG system.
+    
+    Args:
+        query: The user's query
+        prompt_template: The base prompt template
+        
+    Returns:
+        Enhanced prompt with retrieved context
+    """
+    # Get the RAG system
+    rag_system = get_rag_system()
+    
+    # Retrieve relevant documents
+    retrieved_docs = rag_system.retrieve(query, top_k=3)
+    
+    # Format the retrieved context
+    context = format_retrieved_context(retrieved_docs, query)
+    
+    # If we have relevant context, add it to the prompt
+    if context:
+        # Insert the context before the user's query in the prompt template
+        # First, find the position of the user tag in the template
+        user_tag_pos = prompt_template.find("<|user|>")
+        
+        if user_tag_pos != -1:
+            # Insert context right after the user tag and before the query
+            enhanced_template = (
+                prompt_template[:user_tag_pos + 8] +  # Include the <|user|> tag
+                "\n" + context + "\n\n" +  # Add the context with spacing
+                "Based on the above information (if relevant), please answer the following question:\n" +
+                "{query}" +  # Placeholder for the query
+                prompt_template[prompt_template.find("<|assistant|>"):]  # Rest of the template from assistant tag
+            )
+            return enhanced_template.format(query=query)
+        
+    # If no context or couldn't find user tag, use original template
+    return prompt_template.format(query=query)
+
+# Base prompt template
 prompt_template = """<|begin_of_text|><|system|>
 You are a helpful tutor for primary school students. Keep responses short and engaging. This is the query of the student:
 <|user|>
@@ -108,7 +150,10 @@ def get_answer_from_text(text):
     
     try:
         print(f"Input text type: {type(text)}")
-        formatted_prompt = prompt_template.format(query=str(text))
+        
+        # Get enhanced prompt with RAG context if available
+        formatted_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
+        
         print(f"Formatted prompt type: {type(formatted_prompt)}")
         print(f"LLM type: {type(llm)}")
         

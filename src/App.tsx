@@ -3,6 +3,7 @@ import Whiteboard from "./components/Whiteboard";
 import SpeechRecognition from "./components/SpeechRecognition";
 import CameraFeed from "./components/CameraFeed";
 import TranscriptViewer from "./components/TranscriptViewer";
+import DocumentManager from "./components/DocumentManager";
 import { ArrowLeftCircle, ArrowRightCircle, Mic, Book, Brain } from "lucide-react";
 
 const App: React.FC = () => {
@@ -83,6 +84,9 @@ const App: React.FC = () => {
           )}
         </div>
       </div>
+      
+      {/* Document Manager Component */}
+      <DocumentManager />
     </div>
   );
 };
