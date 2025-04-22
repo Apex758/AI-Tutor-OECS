@@ -94,7 +94,7 @@ def setup_transformers_cpu_pipeline():
     return pipe
 
 prompt_template = """<|begin_of_text|><|system|>
-You are a helpful tutor for primary school students.
+You are a helpful tutor for primary school students. Keep responses short and engaging. This is the query of the student:
 <|user|>
 {query}
 <|assistant|>

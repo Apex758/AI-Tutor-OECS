@@ -26,7 +26,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript }) => {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-gray-100 p-4 rounded-lg shadow-inner">
+    <div className="flex flex-col h-full overflow-y-auto bg-gray-100 p-4 rounded-lg shadow-inner" id="transcript-container">
       <h2 className="text-lg font-semibold mb-3">Conversation Transcript</h2>
       
       {transcriptLines.length === 0 ? (

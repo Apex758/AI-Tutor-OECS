@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff } from 'lucide-react';
 import axios from 'axios';
+import { estimateSpeechDuration } from '../utils/speechTimingUtils';
 
 interface SpeechRecognitionProps {
   onTranscriptUpdate?: (transcript: string) => void;
@@ -14,18 +15,39 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Initialize audio player for playing response audio
     audioPlayerRef.current = new Audio();
     
+    // Set up audio player end event for automatic conversation flow
+    audioPlayerRef.current.addEventListener('ended', handleAudioEnded);
+    
     // Cleanup function
     return () => {
+      // Clear any pending timeouts
+      if (audioEndTimeoutRef.current) {
+        clearTimeout(audioEndTimeoutRef.current);
+      }
+      
+      // Remove event listener
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.removeEventListener('ended', handleAudioEnded);
+      }
+      
+      // Stop any active streams
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
   }, []);
+
+  // Handle audio playback ending - automatically start recording again
+  const handleAudioEnded = () => {
+    console.log("Audio playback ended, automatically starting recording");
+    startRecordingInternal();
+  };
 
   const playGreeting = async () => {
     setIsProcessing(true);
@@ -35,10 +57,14 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       const response = await axios.get(`http://localhost:8000/greeting?t=${timestamp}`);
       
       if (response.data?.greeting && response.data?.audio) {
-        // Play the greeting audio - add cache buster to audio URL too
+        // Play the greeting audio
         if (audioPlayerRef.current) {
           // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
+          
+          // Calculate estimated duration of the greeting speech
+          const estimatedDuration = estimateSpeechDuration(response.data.greeting);
+          console.log(`Estimated greeting duration: ${estimatedDuration}ms`);
           
           // Wait for the audio to load before playing
           audioPlayerRef.current.onloadedmetadata = () => {
@@ -46,6 +72,18 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               console.error("Error playing audio:", err);
               setError('Failed to play audio.');
             });
+            
+            // Use setTimeout as a fallback to the 'ended' event
+            // Clear any existing timeout
+            if (audioEndTimeoutRef.current) {
+              clearTimeout(audioEndTimeoutRef.current);
+            }
+            
+            // Set a new timeout based on estimated duration
+            audioEndTimeoutRef.current = setTimeout(() => {
+              console.log("Estimated greeting playback completed, starting recording");
+              startRecordingInternal();
+            }, estimatedDuration + 500); // Add a small buffer
           };
           
           // Add the greeting to the transcript if callback provided
@@ -67,56 +105,56 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   };
 
-  const startRecording = async () => {
+  // Separate internal start recording function (without playing greeting)
+  const startRecordingInternal = async () => {
     setError(null);
     try {
-      // First play the greeting
-      await playGreeting();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       
-      // Give time for the greeting to be played before starting recording
-      setTimeout(async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = stream;
-          
-          chunksRef.current = [];
-          mediaRecorderRef.current = new MediaRecorder(stream, {
-            mimeType: 'audio/webm'
-          });
-          
-          mediaRecorderRef.current.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              chunksRef.current.push(event.data);
-            }
-          };
-          
-          mediaRecorderRef.current.onstop = async () => {
-            if (chunksRef.current.length === 0) return;
-            
-            const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-            
-            // Send to backend for processing
-            await processAudio(audioBlob);
-            
-            // Clean up stream
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach(track => track.stop());
-              streamRef.current = null;
-            }
-          };
-          
-          mediaRecorderRef.current.start();
-          setIsRecording(true);
-        } catch (err) {
-          console.error('Error starting recording:', err);
-          setError('Could not access microphone.');
-          setIsRecording(false);
+      chunksRef.current = [];
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm'
+      });
+      
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
         }
-      }, 3000); // Wait 3 seconds for greeting to play
+      };
+      
+      mediaRecorderRef.current.onstop = async () => {
+        if (chunksRef.current.length === 0) return;
+        
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        
+        // Send to backend for processing
+        await processAudio(audioBlob);
+        
+        // Clean up stream
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+      };
+      
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
     } catch (err) {
-      console.error('Error in startRecording:', err);
-      setError('Failed to start recording.');
+      console.error('Error starting recording:', err);
+      setError('Could not access microphone.');
       setIsRecording(false);
+    }
+  };
+
+  const startRecording = async () => {
+    // If this is the first recording, play greeting first
+    if (!document.getElementById('transcript-container')?.textContent?.includes('PEARL:')) {
+      await playGreeting();
+      // The recording will be started by the timeout or ended event in playGreeting
+    } else {
+      // For subsequent recordings, start recording directly
+      await startRecordingInternal();
     }
   };
 
@@ -125,6 +163,11 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       mediaRecorderRef.current.stop();
     }
     setIsRecording(false);
+    
+    // Clear any pending timeouts when manually stopping
+    if (audioEndTimeoutRef.current) {
+      clearTimeout(audioEndTimeoutRef.current);
+    }
   };
 
   const processAudio = async (audioBlob: Blob) => {
@@ -153,6 +196,10 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         
         // Play the response audio if available
         if (audioPlayerRef.current && response.data.audio) {
+          // Calculate estimated duration of response speech
+          const estimatedDuration = estimateSpeechDuration(response.data.answer);
+          console.log(`Estimated response duration: ${estimatedDuration}ms`);
+          
           // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
           
@@ -162,6 +209,18 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               console.error("Error playing audio:", err);
               setError('Failed to play audio response.');
             });
+            
+            // Use a timeout as a fallback to the 'ended' event for automatic conversation flow
+            // Clear any existing timeout
+            if (audioEndTimeoutRef.current) {
+              clearTimeout(audioEndTimeoutRef.current);
+            }
+            
+            // Set a new timeout based on estimated duration
+            audioEndTimeoutRef.current = setTimeout(() => {
+              console.log("Estimated response playback completed (timeout), starting recording");
+              startRecordingInternal();
+            }, estimatedDuration + 1000); // Add a larger buffer for the fallback
           };
         }
       } else {
@@ -224,20 +283,26 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
 
   return (
     <div className="flex items-center justify-between w-full h-full">
-      <button
-        onClick={toggleRecording}
-        className={`p-2 rounded-full ${
-          isProcessing 
-            ? 'bg-yellow-500 cursor-wait' 
-            : isRecording 
-              ? 'bg-red-500 hover:bg-red-600' 
-              : 'bg-blue-500 hover:bg-blue-600'
-        } text-white`}
-        title={isRecording ? "Stop Recording" : "Start Recording"}
-        disabled={isProcessing}
-      >
-        {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-      </button>
+      <div className="flex items-center">
+        <button
+          onClick={toggleRecording}
+          className={`p-2 rounded-full ${
+            isProcessing 
+              ? 'bg-yellow-500 cursor-wait' 
+              : isRecording 
+                ? 'bg-red-500 hover:bg-red-600' 
+                : 'bg-blue-500 hover:bg-blue-600'
+          } text-white`}
+          title={isRecording ? "Stop Recording" : "Start Conversation"}
+          disabled={isProcessing}
+        >
+          {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+        </button>
+        
+        <span className="ml-2 text-xs text-gray-500">
+          {isRecording ? "Listening..." : "Click to talk"}
+        </span>
+      </div>
       
       {error && (
         <span className="text-red-500 text-sm ml-2">{error}</span>
