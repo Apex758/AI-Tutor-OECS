@@ -5,10 +5,14 @@ import os
 from huggingface_hub import hf_hub_download, login
 from llama_cpp import Llama
 from backend.rag_system import get_rag_system, format_retrieved_context
+import requests
+import json
 
 # Global variable to hold the LLM
 global llm
 
+# Commented out the original pipeline setup methods
+'''
 def setup_llamacpp_pipeline():
     global llm
     # Login to Hugging Face
@@ -93,6 +97,17 @@ def setup_transformers_cpu_pipeline():
     
     # Return the pipeline directly
     return pipe
+'''
+
+# New OpenRouter query function
+def setup_openrouter_client():
+    """
+    Initializes the OpenRouter client configuration.
+    No actual model initialization needed since we're using the API.
+    """
+    print("Setting up OpenRouter client")
+    # Just return a placeholder since we don't need an actual model object
+    return "openrouter_client"
 
 def get_rag_enhanced_prompt(query, prompt_template):
     """
@@ -116,25 +131,20 @@ def get_rag_enhanced_prompt(query, prompt_template):
     
     # If we have relevant context, add it to the prompt
     if context:
-        # Insert the context before the user's query in the prompt template
-        # First, find the position of the user tag in the template
-        user_tag_pos = prompt_template.find("<|user|>")
+        # For OpenRouter, we're just returning the context and query
+        # as we'll format it differently in the API call
+        return {
+            "context": context,
+            "query": query
+        }
         
-        if user_tag_pos != -1:
-            # Insert context right after the user tag and before the query
-            enhanced_template = (
-                prompt_template[:user_tag_pos + 8] +  # Include the <|user|> tag
-                "\n" + context + "\n\n" +  # Add the context with spacing
-                "Based on the above information (if relevant), please answer the following question:\n" +
-                "{query}" +  # Placeholder for the query
-                prompt_template[prompt_template.find("<|assistant|>"):]  # Rest of the template from assistant tag
-            )
-            return enhanced_template.format(query=query)
-        
-    # If no context or couldn't find user tag, use original template
-    return prompt_template.format(query=query)
+    # If no context, just return the query itself
+    return {
+        "context": "",
+        "query": query
+    }
 
-# Base prompt template
+# Base prompt template (we'll use this differently with OpenRouter)
 prompt_template = """<|begin_of_text|><|system|>
 You are a helpful tutor for primary school students. Keep responses short and engaging. This is the query of the student:
 <|user|>
@@ -152,47 +162,66 @@ def get_answer_from_text(text):
         print(f"Input text type: {type(text)}")
         
         # Get enhanced prompt with RAG context if available
-        formatted_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
+        enhanced_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
         
-        print(f"Formatted prompt type: {type(formatted_prompt)}")
-        print(f"LLM type: {type(llm)}")
+        # Define the system message
+        system_message = "You are a helpful tutor for primary school students. Keep responses short and engaging."
         
-        # Check if we're using llama-cpp or transformers
-        if hasattr(llm, '__call__') and not hasattr(llm, 'invoke'):
-            # This is a direct Llama model (llama-cpp)
-            response = llm(
-                formatted_prompt,
-                max_tokens=512,
-                temperature=0.7,
-                top_p=0.9,
-                repeat_penalty=1.2,
-                echo=False
-            )
-            print("Direct Llama model response received")
-            return response["choices"][0]["text"]
+        # Prepare the user message with context if available
+        user_content = text
+        if enhanced_prompt.get("context"):
+            user_content = f"{enhanced_prompt['context']}\n\nBased on the above information (if relevant), please answer the following question:\n{enhanced_prompt['query']}"
+        
+        # Make the API call to OpenRouter
+        api_key = os.environ.get("OPENROUTER_API_KEY", "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")
+        
+        print(f"Making OpenRouter API call for: {user_content[:100]}...")
+        
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "http://localhost:8000",  # Placeholder
+                "X-Title": "AI Tutor App",  # Placeholder name
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({
+                "model": "meta-llama/llama-4-maverick:free",  # Using the specified model
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_message
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content
+                    }
+                ]
+            })
+        )
+        
+        response_data = response.json()
+        print("OpenRouter response received")
+        
+        if response.status_code == 200 and "choices" in response_data and len(response_data["choices"]) > 0:
+            answer = response_data["choices"][0]["message"]["content"]
+            return answer
         else:
-            # This is a transformers pipeline
-            response = llm(
-                formatted_prompt,
-                max_new_tokens=512,
-                temperature=0.7,
-                top_p=0.9,
-                repetition_penalty=1.2,
-                do_sample=True
-            )
-            print("Transformers pipeline response received")
-            return response[0]["generated_text"]
+            error_message = response_data.get("error", {}).get("message", "Unknown API error")
+            print(f"OpenRouter API error: {error_message}")
+            return f"I'm sorry, I couldn't process your request. Error: {error_message}"
+            
     except Exception as e:
         print(f"Error in get_answer_from_text: {e}")
         print(f"Text: {text} ({type(text)})")
-        print(f"Formatted prompt: {formatted_prompt} ({type(formatted_prompt)})")
-        raise
+        return f"I'm sorry, an error occurred: {str(e)}"
 
 def main():
-    os.environ["HF_TOKEN"] = "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"
-    print("Initializing Llama-3.2-1B model...")
+    # Set the OpenRouter API key in environment variables
+    os.environ["OPENROUTER_API_KEY"] = "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"
+    print("Initializing OpenRouter client...")
     global llm
-    llm = setup_llamacpp_pipeline()
+    llm = setup_openrouter_client()
     
 if __name__ == "__main__":
     main()

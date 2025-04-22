@@ -1,7 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Konva from 'konva';
-import { Stage, Layer, Line, Rect, Circle } from 'react-konva';
+import { Stage, Layer, Line, Rect, Circle, Image } from 'react-konva';
 import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon } from 'lucide-react';
+import SubtitleDisplay from './SubtitleDisplay';
+import { useTTS } from '../context/TTSContext';
 
 interface ToolButtonProps {
   onClick: () => void;
@@ -63,6 +65,9 @@ const Whiteboard: React.FC = () => {
   const [historyStep, setHistoryStep] = useState(0);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Get TTS text and playing state from context
+  const { currentTTS, isPlaying, audioDuration } = useTTS();
 
   useEffect(() => {
     const updateSize = () => {
@@ -440,6 +445,15 @@ const Whiteboard: React.FC = () => {
             })}
           </Layer>
         </Stage>
+        
+        {/* Subtitle display at the bottom of the whiteboard */}
+        {isPlaying && currentTTS && (
+          <SubtitleDisplay 
+            text={currentTTS} 
+            isPlaying={isPlaying}
+            audioDuration={audioDuration}
+          />
+        )}
       </div>
     </div>
   );

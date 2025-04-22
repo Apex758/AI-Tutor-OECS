@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import { Mic, MicOff, Settings, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { estimateSpeechDuration } from '../utils/speechTimingUtils';
+import { useTTS } from '../context/TTSContext';
 
 interface SpeechRecognitionProps {
   onTranscriptUpdate?: (transcript: string) => void;
@@ -11,29 +12,93 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoMic, setAutoMic] = useState(true); // New state for auto mic toggle
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const audioEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Use autoMicRef to access current autoMic state in event listeners
+  const autoMicRef = useRef<boolean>(autoMic);
+  
+  // Update the ref whenever autoMic state changes
+  useEffect(() => {
+    console.log(`Updating autoMicRef from ${autoMicRef.current} to ${autoMic}`);
+    autoMicRef.current = autoMic;
+    
+    // When autoMic is toggled off, clear any pending auto-start timeouts
+    if (!autoMic && audioEndTimeoutRef.current) {
+      console.log("Auto-mic disabled - clearing pending auto-start timeouts");
+      clearTimeout(audioEndTimeoutRef.current);
+      audioEndTimeoutRef.current = null;
+    }
+  }, [autoMic]);
+  
+  // Access TTS context for displaying subtitles
+  const { setCurrentTTS, setIsPlaying, setAudioDuration } = useTTS();
+
+  // Handle audio playback ending - use function that accesses current ref value instead of closure
+  const handleAudioEnded = () => {
+    console.log("Audio playback ended, accessing current autoMicRef.current:", autoMicRef.current);
+    setIsPlaying(false);
+    
+    // Use the ref to access the current value, not the closure
+    if (autoMicRef.current) {
+      console.log("Auto-mic is enabled via ref, automatically starting recording");
+      startRecordingInternal();
+    } else {
+      console.log("Auto-mic is disabled via ref, NOT automatically starting recording");
+      // Do nothing when autoMic is disabled - user must manually start recording
+    }
+  };
 
   useEffect(() => {
     // Initialize audio player for playing response audio
     audioPlayerRef.current = new Audio();
     
+    // Use a function that reads from ref, not from closure
+    const handleEndedEvent = () => handleAudioEnded();
+    
     // Set up audio player end event for automatic conversation flow
-    audioPlayerRef.current.addEventListener('ended', handleAudioEnded);
+    audioPlayerRef.current.addEventListener('ended', handleEndedEvent);
+    
+    // Set up audio player start event for subtitle synchronization
+    audioPlayerRef.current.addEventListener('play', () => {
+      setIsPlaying(true);
+    });
+    
+    // Set up audio player pause/end event for subtitle synchronization
+    audioPlayerRef.current.addEventListener('pause', () => {
+      setIsPlaying(false);
+    });
+    
+    // Handle audio metadata loaded to get actual duration
+    audioPlayerRef.current.addEventListener('loadedmetadata', () => {
+      if (audioPlayerRef.current && audioPlayerRef.current.duration) {
+        // Convert to milliseconds
+        const durationMs = audioPlayerRef.current.duration * 1000;
+        setAudioDuration(durationMs);
+        console.log(`Actual audio duration: ${durationMs}ms`);
+      }
+    });
     
     // Cleanup function
     return () => {
       // Clear any pending timeouts
       if (audioEndTimeoutRef.current) {
         clearTimeout(audioEndTimeoutRef.current);
+        audioEndTimeoutRef.current = null;
       }
       
-      // Remove event listener
+      // Remove event listeners
       if (audioPlayerRef.current) {
-        audioPlayerRef.current.removeEventListener('ended', handleAudioEnded);
+        audioPlayerRef.current.removeEventListener('ended', handleEndedEvent);
+        audioPlayerRef.current.removeEventListener('play', () => setIsPlaying(true));
+        audioPlayerRef.current.removeEventListener('pause', () => setIsPlaying(false));
+        audioPlayerRef.current.removeEventListener('loadedmetadata', () => {
+          if (audioPlayerRef.current) setAudioDuration(audioPlayerRef.current.duration * 1000);
+        });
       }
       
       // Stop any active streams
@@ -41,13 +106,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
-
-  // Handle audio playback ending - automatically start recording again
-  const handleAudioEnded = () => {
-    console.log("Audio playback ended, automatically starting recording");
-    startRecordingInternal();
-  };
+  }, [setIsPlaying, setAudioDuration]); // Don't include autoMic in dependencies to avoid recreating listeners
 
   const playGreeting = async () => {
     setIsProcessing(true);
@@ -57,33 +116,55 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       const response = await axios.get(`http://localhost:8000/greeting?t=${timestamp}`);
       
       if (response.data?.greeting && response.data?.audio) {
+        // Estimate the duration for initial subtitle timing
+        const estimatedDuration = estimateSpeechDuration(response.data.greeting);
+        console.log(`Estimated greeting duration: ${estimatedDuration}ms`);
+        
+        // Set the greeting text and estimated duration for subtitle display
+        setCurrentTTS(response.data.greeting);
+        setAudioDuration(estimatedDuration);
+        
         // Play the greeting audio
         if (audioPlayerRef.current) {
           // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
           
-          // Calculate estimated duration of the greeting speech
-          const estimatedDuration = estimateSpeechDuration(response.data.greeting);
-          console.log(`Estimated greeting duration: ${estimatedDuration}ms`);
-          
           // Wait for the audio to load before playing
           audioPlayerRef.current.onloadedmetadata = () => {
+            // Now we know the actual duration, update it
+            if (audioPlayerRef.current) {
+              const actualDuration = audioPlayerRef.current.duration * 1000;
+              setAudioDuration(actualDuration);
+              console.log(`Actual greeting audio duration: ${actualDuration}ms`);
+            }
+            
             audioPlayerRef.current?.play().catch(err => {
               console.error("Error playing audio:", err);
               setError('Failed to play audio.');
+              setIsPlaying(false);
             });
             
-            // Use setTimeout as a fallback to the 'ended' event
             // Clear any existing timeout
             if (audioEndTimeoutRef.current) {
               clearTimeout(audioEndTimeoutRef.current);
+              audioEndTimeoutRef.current = null;
             }
             
-            // Set a new timeout based on estimated duration
-            audioEndTimeoutRef.current = setTimeout(() => {
-              console.log("Estimated greeting playback completed, starting recording");
-              startRecordingInternal();
-            }, estimatedDuration + 500); // Add a small buffer
+            // Set a new timeout based on estimated duration ONLY if autoMic is enabled (use ref)
+            // This is a fallback in case the 'ended' event doesn't fire
+            if (autoMicRef.current) {
+              audioEndTimeoutRef.current = setTimeout(() => {
+                console.log("Estimated greeting playback completed, checking autoMicRef:", autoMicRef.current);
+                setIsPlaying(false);
+                
+                if (autoMicRef.current) { // Check ref, not state
+                  console.log("Auto-mic is enabled (ref), starting recording");
+                  startRecordingInternal();
+                } else {
+                  console.log("Auto-mic is disabled (ref), NOT starting recording");
+                }
+              }, estimatedDuration + 500); // Add a small buffer
+            }
           };
           
           // Add the greeting to the transcript if callback provided
@@ -167,6 +248,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     // Clear any pending timeouts when manually stopping
     if (audioEndTimeoutRef.current) {
       clearTimeout(audioEndTimeoutRef.current);
+      audioEndTimeoutRef.current = null;
     }
   };
 
@@ -188,6 +270,14 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       
       // Handle the response
       if (response.data?.question && response.data?.answer) {
+        // Calculate estimated duration of response speech
+        const estimatedDuration = estimateSpeechDuration(response.data.answer);
+        console.log(`Estimated response duration: ${estimatedDuration}ms`);
+        
+        // Set the response text and estimated duration for subtitle display
+        setCurrentTTS(response.data.answer);
+        setAudioDuration(estimatedDuration);
+        
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
@@ -196,31 +286,45 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         
         // Play the response audio if available
         if (audioPlayerRef.current && response.data.audio) {
-          // Calculate estimated duration of response speech
-          const estimatedDuration = estimateSpeechDuration(response.data.answer);
-          console.log(`Estimated response duration: ${estimatedDuration}ms`);
-          
           // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
           
           // Wait for the audio to load before playing
           audioPlayerRef.current.onloadedmetadata = () => {
+            // Update with actual duration once audio is loaded
+            if (audioPlayerRef.current) {
+              const actualDuration = audioPlayerRef.current.duration * 1000;
+              setAudioDuration(actualDuration);
+              console.log(`Actual response audio duration: ${actualDuration}ms`);
+            }
+            
             audioPlayerRef.current?.play().catch(err => {
               console.error("Error playing audio:", err);
               setError('Failed to play audio response.');
+              setIsPlaying(false);
             });
             
-            // Use a timeout as a fallback to the 'ended' event for automatic conversation flow
             // Clear any existing timeout
             if (audioEndTimeoutRef.current) {
               clearTimeout(audioEndTimeoutRef.current);
+              audioEndTimeoutRef.current = null;
             }
             
-            // Set a new timeout based on estimated duration
-            audioEndTimeoutRef.current = setTimeout(() => {
-              console.log("Estimated response playback completed (timeout), starting recording");
-              startRecordingInternal();
-            }, estimatedDuration + 1000); // Add a larger buffer for the fallback
+            // Set a new timeout based on estimated duration ONLY if autoMic is enabled (use ref)
+            // This is a fallback in case the 'ended' event doesn't fire
+            if (autoMicRef.current) {
+              audioEndTimeoutRef.current = setTimeout(() => {
+                console.log("Estimated response playback completed (timeout), checking autoMicRef:", autoMicRef.current);
+                setIsPlaying(false);
+                
+                if (autoMicRef.current) { // Check ref, not state
+                  console.log("Auto-mic is enabled (ref), starting recording via timeout");
+                  startRecordingInternal();
+                } else {
+                  console.log("Auto-mic is disabled (ref), NOT starting recording via timeout");
+                }
+              }, estimatedDuration + 1000); // Add a larger buffer for the fallback
+            }
           };
         }
       } else {
@@ -268,6 +372,9 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       if (onTranscriptUpdate) {
         onTranscriptUpdate(`System: ${errorMessage}`);
       }
+      
+      // Reset TTS playing state
+      setIsPlaying(false);
     } finally {
       setIsProcessing(false);
     }
@@ -281,9 +388,26 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   };
 
+  // Toggle auto-mic function
+  const toggleAutoMic = () => {
+    const newAutoMicState = !autoMic;
+    console.log(`Toggling auto-mic from ${autoMic} to ${newAutoMicState}`);
+    
+    // If turning off auto-mic, clear any pending auto-start timeouts
+    if (!newAutoMicState && audioEndTimeoutRef.current) {
+      console.log("Clearing any pending auto-start timeouts");
+      clearTimeout(audioEndTimeoutRef.current);
+      audioEndTimeoutRef.current = null;
+    }
+    
+    // This will update the state and trigger the useEffect to update the ref
+    setAutoMic(newAutoMicState);
+  };
+
   return (
     <div className="flex items-center justify-between w-full h-full">
-      <div className="flex items-center">
+      <div className="flex items-center space-x-3">
+        {/* Mic button */}
         <button
           onClick={toggleRecording}
           className={`p-2 rounded-full ${
@@ -299,7 +423,19 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
         </button>
         
-        <span className="ml-2 text-xs text-gray-500">
+        {/* Auto-mic toggle button */}
+        <button 
+          onClick={toggleAutoMic}
+          className={`p-1.5 rounded-md text-xs flex items-center ${
+            autoMic ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-gray-100 text-gray-500 border border-gray-300'
+          }`}
+          title={autoMic ? "Auto-mic is ON - Will automatically listen after AI responds" : "Auto-mic is OFF - Manual listening mode"}
+        >
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Auto: {autoMic ? "ON" : "OFF"}
+        </button>
+        
+        <span className="ml-1 text-xs text-gray-500">
           {isRecording ? "Listening..." : "Click to talk"}
         </span>
       </div>

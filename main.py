@@ -80,9 +80,9 @@ async def tutor_from_audio(file: UploadFile = File(...)):
         
         try:
             # Get a response based on the transcript by passing to query model
-            print("Step 5: Sending transcription to language model...")
+            print("Step 5: Sending transcription to OpenRouter API...")
             answer = get_answer_from_text(text)
-            print("Step 6: AI model response:", answer)
+            print("Step 6: OpenRouter API response:", answer)
             
             # Update conversation history
             print("Step 7: Updating conversation history")
@@ -102,11 +102,11 @@ async def tutor_from_audio(file: UploadFile = File(...)):
             }
         
         except Exception as model_error:
-            print("Model Error:", model_error)
+            print("OpenRouter API Error:", model_error)
             error_response = {
-                "error": f"The AI model encountered an error: {str(model_error)}",
+                "error": f"The OpenRouter API encountered an error: {str(model_error)}",
                 "question": text,
-                "answer": "I'm sorry, I had trouble processing your request. The AI model is currently experiencing issues. Please try again later."
+                "answer": "I'm sorry, I had trouble processing your request. The OpenRouter API is currently experiencing issues. Please try again later."
             }
 
             print("Generating TTS for error message...")
@@ -295,6 +295,10 @@ if __name__ == "__main__":
                 os.remove(path)
             except Exception as e:
                 print(f"Warning: Could not remove temp file at startup: {e}")
+    
+    # Set the OpenRouter API key
+    os.environ["OPENROUTER_API_KEY"] = "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"
+    print("OpenRouter API key set")
     
     # Scan RAG_docs folder on startup
     try:
