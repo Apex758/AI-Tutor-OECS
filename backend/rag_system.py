@@ -14,8 +14,12 @@ from PIL import Image
 from pdf2image import convert_from_path
 
 # Set paths for Tesseract and Poppler
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-POPPLER_PATH = r'C:\Users\LG\Desktop\Curriculum Filler\poppler\poppler-24.08.0\Library\bin'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+tesseract_path = os.path.join(BASE_DIR, 'Extensions', 'Tesseract-OCR', 'tesseract.exe')
+poppler_path = os.path.join(BASE_DIR, 'Extensions', 'poppler-24.08.0', 'Library', 'bin')
+
+pytesseract.pytesseract.tesseract_cmd = tesseract_path
+POPPLER_PATH = poppler_path
 
 # Constants
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"

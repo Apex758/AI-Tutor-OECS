@@ -2,17 +2,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Settings, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { estimateSpeechDuration } from '../utils/speechTimingUtils';
-import { useTTS } from '../context/TTSContext';
+import { useTTS, DrawingInstruction } from '../context/TTSContext';
 
 interface SpeechRecognitionProps {
   onTranscriptUpdate?: (transcript: string) => void;
+}
+
+// Define the expected response format from the backend
+interface AIResponse {
+  question: string;
+  answer: {
+    explanation: string; // Contains [DRAW:id] markers
+    drawings: DrawingInstruction[];
+  } | string; // For backward compatibility
+  audio: string; // URL to audio file
 }
 
 const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdate }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [autoMic, setAutoMic] = useState(true); // New state for auto mic toggle
+  const [autoMic, setAutoMic] = useState(true);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -35,8 +45,15 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   }, [autoMic]);
   
-  // Access TTS context for displaying subtitles
-  const { setCurrentTTS, setIsPlaying, setAudioDuration } = useTTS();
+  // Access TTS context for displaying subtitles and drawings
+  const { 
+    setCurrentTTS, 
+    setIsPlaying, 
+    setAudioDuration, 
+    setDrawings, 
+    activateDrawing, 
+    resetActiveDrawings 
+  } = useTTS();
 
   // Handle audio playback ending - use function that accesses current ref value instead of closure
   const handleAudioEnded = () => {
@@ -123,6 +140,10 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Set the greeting text and estimated duration for subtitle display
         setCurrentTTS(response.data.greeting);
         setAudioDuration(estimatedDuration);
+        
+        // Reset any active drawings
+        resetActiveDrawings();
+        setDrawings([]);
         
         // Play the greeting audio
         if (audioPlayerRef.current) {
@@ -262,26 +283,68 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       
       // Send to backend with timestamp to avoid caching
       const timestamp = new Date().getTime();
-      const response = await axios.post(`http://localhost:8000/tutor/speak?t=${timestamp}`, formData, {
+      const response = await axios.post<AIResponse>(`http://localhost:8000/tutor/speak?t=${timestamp}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
       
       // Handle the response
-      if (response.data?.question && response.data?.answer) {
+      if (response.data?.question) {
+        // Check if the response is in the new format with explanation and drawings
+        const answerData = response.data.answer;
+        
+        // Reset active drawings
+        resetActiveDrawings();
+        
+        // Initialize variables for both formats
+        let explanation = '';
+        let drawings: DrawingInstruction[] = [];
+
+        // Parse the response based on its format
+        if (typeof answerData === 'string') {
+          // Old format - just a string answer
+          explanation = answerData;
+          drawings = [];
+        } else {
+          // New format with explanation and drawings
+          explanation = answerData.explanation;
+          drawings = answerData.drawings || [];
+          
+          // Store drawings in context
+          setDrawings(drawings);
+          console.log(`Loaded ${drawings.length} drawings from response`);
+        }
+        
         // Calculate estimated duration of response speech
-        const estimatedDuration = estimateSpeechDuration(response.data.answer);
+        const estimatedDuration = estimateSpeechDuration(explanation);
         console.log(`Estimated response duration: ${estimatedDuration}ms`);
         
-        // Set the response text and estimated duration for subtitle display
-        setCurrentTTS(response.data.answer);
+        // Extract drawing markers and prepare timings
+        const regex = /\[DRAW:([^\]]+)\]/g;
+        let match;
+        const markers: { id: string, position: number }[] = [];
+        
+        // Find all drawing markers
+        while ((match = regex.exec(explanation)) !== null) {
+          markers.push({
+            id: match[1],
+            position: match.index
+          });
+        }
+        
+        // Clean explanation by removing drawing markers for TTS and transcript
+        const cleanExplanation = explanation.replace(regex, '');
+        console.log(`Found ${markers.length} drawing markers in explanation`);
+        
+        // Set the response text for subtitle display
+        setCurrentTTS(cleanExplanation);
         setAudioDuration(estimatedDuration);
         
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
-          onTranscriptUpdate("PEARL: " + response.data.answer);
+          onTranscriptUpdate("PEARL: " + cleanExplanation);
         }
         
         // Play the response audio if available
@@ -296,6 +359,23 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               const actualDuration = audioPlayerRef.current.duration * 1000;
               setAudioDuration(actualDuration);
               console.log(`Actual response audio duration: ${actualDuration}ms`);
+              
+              // Set up drawing activation timers based on marker positions
+              if (markers.length > 0 && drawings.length > 0) {
+                // Calculate timing for each marker based on its position in the text
+                markers.forEach(marker => {
+                  // Calculate what percentage through the text this marker appears
+                  const textPercentage = marker.position / cleanExplanation.length;
+                  // Convert to time based on audio duration
+                  const drawingTime = Math.floor(textPercentage * actualDuration);
+                  
+                  // Set timeout to activate the drawing at the appropriate time
+                  setTimeout(() => {
+                    console.log(`Activating drawing ${marker.id} at ${drawingTime}ms`);
+                    activateDrawing(marker.id);
+                  }, drawingTime);
+                });
+              }
             }
             
             audioPlayerRef.current?.play().catch(err => {

@@ -59,7 +59,7 @@ class RemoveDocumentRequest(BaseModel):
 # Store conversation history
 conversation_history = []
 
-# These are the updated route handlers for the main.py file
+
 @app.post("/tutor/speak")
 async def tutor_from_audio(file: UploadFile = File(...)):
     """
@@ -81,25 +81,50 @@ async def tutor_from_audio(file: UploadFile = File(...)):
         try:
             # Get a response based on the transcript by passing to query model
             print("Step 5: Sending transcription to OpenRouter API...")
-            answer = get_answer_from_text(text)
-            print("Step 6: OpenRouter API response:", answer)
+            response = get_answer_from_text(text)
+            print("Step 6: OpenRouter API response:", response)
+            
+            # Check if response is a string (error) or the new format
+            if isinstance(response, str):
+                # Handle legacy error response format
+                answer = response
+                audio_path = None
+            else:
+                # Handle new structured response format
+                answer = response
+                
+                # Check if we have an explanation field in the answer
+                if isinstance(answer, dict) and isinstance(answer.get('answer', {}), dict):
+                    explanation = answer['answer'].get('explanation', '')
+                    # Use the explanation for TTS
+                    audio_file = generate_tts_audio(explanation)
+                    # Update the audio path in the response
+                    answer['audio'] = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+                else:
+                    # Use the entire response for TTS (fallback for legacy format)
+                    audio_file = generate_tts_audio(str(answer))
+                    audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+                    # If response was not structured, wrap it
+                    if not isinstance(answer, dict):
+                        answer = {
+                            "question": text,
+                            "answer": answer,
+                            "audio": audio_path
+                        }
             
             # Update conversation history
             print("Step 7: Updating conversation history")
             conversation_history.append({"role": "user", "content": text})
-            conversation_history.append({"role": "assistant", "content": answer})
             
-            # Generate audio for the response
-            print("Step 8: Generating TTS audio...")
-            audio_file = generate_tts_audio(answer)
-            audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
-            print("Step 9: TTS audio ready at", audio_path)
+            # Extract explanation from structured response if available
+            if isinstance(response, dict) and isinstance(response.get('answer', {}), dict):
+                explanation = response['answer'].get('explanation', '')
+                conversation_history.append({"role": "assistant", "content": explanation})
+            else:
+                conversation_history.append({"role": "assistant", "content": str(response)})
             
-            return {
-                "question": text,
-                "answer": answer,
-                "audio": audio_path
-            }
+            print("Step 9: Response ready")
+            return answer
         
         except Exception as model_error:
             print("OpenRouter API Error:", model_error)

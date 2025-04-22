@@ -30,7 +30,7 @@ const App: React.FC = () => {
         <header className="bg-white border-b px-4 py-3 shadow-sm flex items-center">
           <div className="flex items-center space-x-2">
             <Brain className="h-6 w-6 text-blue-600" />
-            <h1 className="text-xl font-bold text-blue-900">AI Tutor</h1>
+            <h1 className="text-xl font-bold text-blue-900">PEARL Tutor</h1>
           </div>
           <div className="flex-grow"></div>
           <div className="text-sm text-gray-500">

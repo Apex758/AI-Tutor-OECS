@@ -7,12 +7,13 @@ from llama_cpp import Llama
 from backend.rag_system import get_rag_system, format_retrieved_context
 import requests
 import json
+import time
+from backend.drawing_generator import DrawingGenerator
 
 # Global variable to hold the LLM
 global llm
 
-# Commented out the original pipeline setup methods
-'''
+
 def setup_llamacpp_pipeline():
     global llm
     # Login to Hugging Face
@@ -97,7 +98,7 @@ def setup_transformers_cpu_pipeline():
     
     # Return the pipeline directly
     return pipe
-'''
+
 
 # New OpenRouter query function
 def setup_openrouter_client():
@@ -146,11 +147,12 @@ def get_rag_enhanced_prompt(query, prompt_template):
 
 # Base prompt template (we'll use this differently with OpenRouter)
 prompt_template = """<|begin_of_text|><|system|>
-You are a helpful tutor for primary school students. Keep responses short and engaging. This is the query of the student:
+Ensure responses are children friendly.
 <|user|>
 {query}
 <|assistant|>
 """
+
 
 def get_answer_from_text(text):
     global llm
@@ -164,8 +166,22 @@ def get_answer_from_text(text):
         # Get enhanced prompt with RAG context if available
         enhanced_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
         
-        # Define the system message
-        system_message = "You are a helpful tutor for primary school students. Keep responses short and engaging."
+        # Define the system message with drawing instructions
+        system_message = """
+        You are a helpful tutor for primary school students. Keep responses short and engaging.
+        
+        When explaining math concepts, diagrams, shapes, or other visual elements, use special 
+        marking syntax to indicate where drawings should appear.
+        
+        Use the following syntax for drawing elements:
+        - {CIRCLE:name} - For circular shapes
+        - {RECT:name} - For rectangular shapes
+        - {LINE:name} - For straight lines
+        - {PATH:name} - For multi-point paths
+        - {FRACTION:1/4} - For fractions (replace 1/4 with the actual fraction)
+        
+        The drawings will appear exactly when the marker in your text is read aloud.
+        """
         
         # Prepare the user message with context if available
         user_content = text
@@ -204,8 +220,16 @@ def get_answer_from_text(text):
         print("OpenRouter response received")
         
         if response.status_code == 200 and "choices" in response_data and len(response_data["choices"]) > 0:
-            answer = response_data["choices"][0]["message"]["content"]
-            return answer
+            explanation = response_data["choices"][0]["message"]["content"]
+            
+            # Process the explanation to extract drawing instructions
+            audio_path = f"/tts_output/current_response.wav?t={time.time()}"
+            result = DrawingGenerator.format_response(text, explanation, audio_path)
+            
+            # For debugging, print how many drawings were extracted
+            print(f"Extracted {len(result['answer']['drawings'])} drawings from explanation")
+            
+            return result
         else:
             error_message = response_data.get("error", {}).get("message", "Unknown API error")
             print(f"OpenRouter API error: {error_message}")
@@ -215,6 +239,7 @@ def get_answer_from_text(text):
         print(f"Error in get_answer_from_text: {e}")
         print(f"Text: {text} ({type(text)})")
         return f"I'm sorry, an error occurred: {str(e)}"
+
 
 def main():
     # Set the OpenRouter API key in environment variables

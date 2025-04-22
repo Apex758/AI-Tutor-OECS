@@ -1,9 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Konva from 'konva';
-import { Stage, Layer, Line, Rect, Circle, Image } from 'react-konva';
+import { Stage, Layer, Line, Rect, Circle, Text, Image } from 'react-konva';
 import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon } from 'lucide-react';
 import SubtitleDisplay from './SubtitleDisplay';
-import { useTTS } from '../context/TTSContext';
+import { useTTS, DrawingInstruction } from '../context/TTSContext';
 
 interface ToolButtonProps {
   onClick: () => void;
@@ -14,6 +14,7 @@ interface ToolButtonProps {
 }
 
 interface Line {
+  id?: string;
   tool: string;
   points: number[];
   color: string;
@@ -21,7 +22,8 @@ interface Line {
 }
 
 interface Shape {
-  tool: 'rectangle' | 'circle';
+  id?: string;
+  tool: 'rectangle' | 'circle' | 'text';
   x: number;
   y: number;
   width?: number;
@@ -29,6 +31,9 @@ interface Shape {
   radius?: number;
   color: string;
   strokeWidth: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
 }
 
 const ToolButton: React.FC<ToolButtonProps> = ({ 
@@ -67,7 +72,7 @@ const Whiteboard: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Get TTS text and playing state from context
-  const { currentTTS, isPlaying, audioDuration } = useTTS();
+  const { currentTTS, isPlaying, audioDuration, drawings, activeDrawingIds } = useTTS();
 
   useEffect(() => {
     const updateSize = () => {
@@ -83,6 +88,111 @@ const Whiteboard: React.FC = () => {
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
+
+  // Effect to handle dynamic drawing creation from drawings context
+  useEffect(() => {
+    if (!drawings || !activeDrawingIds.length) return;
+    
+    // Find newly activated drawings
+    const newDrawings = drawings.filter(d => 
+      activeDrawingIds.includes(d.id) && 
+      !shapes.some(s => s.id === d.id) && 
+      !lines.some(l => l.id === d.id)
+    );
+    
+    if (newDrawings.length === 0) return;
+    
+    // Add new shapes or lines
+    const newShapes: Shape[] = [];
+    const newLines: Line[] = [];
+    
+    newDrawings.forEach(drawing => {
+      if (drawing.type === 'rectangle') {
+        newShapes.push({
+          id: drawing.id,
+          tool: 'rectangle',
+          x: drawing.startX || 0,
+          y: drawing.startY || 0,
+          width: drawing.width || 100,
+          height: drawing.height || 100,
+          color: drawing.color,
+          strokeWidth: drawing.lineWidth
+        });
+      } else if (drawing.type === 'circle') {
+        newShapes.push({
+          id: drawing.id,
+          tool: 'circle',
+          x: drawing.startX || 0,
+          y: drawing.startY || 0,
+          radius: drawing.radius || 50,
+          color: drawing.color,
+          strokeWidth: drawing.lineWidth
+        });
+      } else if (drawing.type === 'line') {
+        newLines.push({
+          id: drawing.id,
+          tool: 'pencil',
+          points: [
+            drawing.startX || 0, 
+            drawing.startY || 0, 
+            drawing.endX || 100, 
+            drawing.endY || 100
+          ],
+          color: drawing.color,
+          strokeWidth: drawing.lineWidth
+        });
+      } else if (drawing.type === 'path' && drawing.points) {
+        // Convert points array to flat array for Konva
+        const points: number[] = [];
+        drawing.points.forEach(point => {
+          points.push(point.x, point.y);
+        });
+        
+        newLines.push({
+          id: drawing.id,
+          tool: 'pencil',
+          points,
+          color: drawing.color,
+          strokeWidth: drawing.lineWidth
+        });
+      } else if (drawing.type === 'text') {
+        newShapes.push({
+          id: drawing.id,
+          tool: 'text',
+          x: drawing.startX || 0,
+          y: drawing.startY || 0,
+          color: drawing.color,
+          strokeWidth: 1,
+          text: drawing.text || '',
+          fontSize: drawing.fontSize || 24,
+          fontFamily: drawing.fontFamily || 'Arial'
+        });
+      }
+    });
+    
+    // Update shapes and lines
+    if (newShapes.length > 0) {
+      setShapes(prev => [...prev, ...newShapes]);
+      console.log(`Added ${newShapes.length} new shapes from drawing instructions`);
+    }
+    
+    if (newLines.length > 0) {
+      setLines(prev => [...prev, ...newLines]);
+      console.log(`Added ${newLines.length} new lines from drawing instructions`);
+    }
+    
+    // Update history if we added new drawings
+    if (newShapes.length > 0 || newLines.length > 0) {
+      const updatedLines = [...lines, ...newLines];
+      const updatedShapes = [...shapes, ...newShapes];
+      
+      setHistory([...history.slice(0, historyStep + 1), { 
+        lines: updatedLines, 
+        shapes: updatedShapes 
+      }]);
+      setHistoryStep(historyStep + 1);
+    }
+  }, [activeDrawingIds, drawings]);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     isDrawing.current = true;
@@ -385,7 +495,7 @@ const Whiteboard: React.FC = () => {
           <Layer>
             {lines.map((line, i) => (
               <Line
-                key={`line-${i}`}
+                key={`line-${line.id || i}`}
                 points={line.points}
                 stroke={line.color}
                 strokeWidth={line.strokeWidth}
@@ -401,7 +511,7 @@ const Whiteboard: React.FC = () => {
               if (shape.tool === 'rectangle' && shape.width && shape.height) {
                 return (
                   <Rect
-                    key={`shape-${i}`}
+                    key={`shape-${shape.id || i}`}
                     x={shape.x}
                     y={shape.y}
                     width={shape.width}
@@ -413,12 +523,24 @@ const Whiteboard: React.FC = () => {
               } else if (shape.tool === 'circle' && shape.radius) {
                 return (
                   <Circle
-                    key={`shape-${i}`}
+                    key={`shape-${shape.id || i}`}
                     x={shape.x}
                     y={shape.y}
                     radius={shape.radius}
                     stroke={shape.color}
                     strokeWidth={shape.strokeWidth}
+                  />
+                );
+              } else if (shape.tool === 'text' && shape.text) {
+                return (
+                  <Text
+                    key={`shape-${shape.id || i}`}
+                    x={shape.x}
+                    y={shape.y}
+                    text={shape.text}
+                    fontSize={shape.fontSize}
+                    fontFamily={shape.fontFamily}
+                    fill={shape.color}
                   />
                 );
               }
