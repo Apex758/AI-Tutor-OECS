@@ -9,7 +9,13 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 import hashlib
 from pathlib import Path
-import shutil
+import pytesseract
+from PIL import Image
+from pdf2image import convert_from_path
+
+# Set paths for Tesseract and Poppler
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+POPPLER_PATH = r'C:\Users\LG\Desktop\Curriculum Filler\poppler\poppler-24.08.0\Library\bin'
 
 # Constants
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -101,7 +107,37 @@ class RAGSystem:
         
         # Scan the RAG_docs directory on startup
         self.scan_rag_docs_folder()
-        
+
+    def pdf_to_text(self, pdf_path: str, timeout: int = 30) -> str:
+        """Extract text from a PDF file using OCR with timeout."""
+        try:
+            import concurrent.futures
+            
+            # Convert PDF to images using poppler path
+            images = convert_from_path(pdf_path, poppler_path=POPPLER_PATH)
+            
+            text = ""
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = []
+                for image in images:
+                    future = executor.submit(pytesseract.image_to_string, image)
+                    futures.append(future)
+                
+                for future in concurrent.futures.as_completed(futures, timeout=timeout):
+                    try:
+                        text += future.result()
+                    except concurrent.futures.TimeoutError:
+                        print(f"Timeout processing PDF page in {pdf_path}")
+                        text += "\n[Timeout processing page]\n"
+                    except Exception as e:
+                        print(f"Error processing PDF page in {pdf_path}: {e}")
+                        text += f"\n[Error processing page: {str(e)}]\n"
+            
+            return text.strip()
+        except Exception as e:
+            print(f"Error extracting text from PDF {pdf_path}: {e}")
+            return ""
+         
     def _generate_document_id(self, content: str, filepath: str = "") -> str:
         """Generate a unique ID for a document based on its content and filepath."""
         content_hash = hashlib.md5(content.encode()).hexdigest()
@@ -220,12 +256,12 @@ class RAGSystem:
         print(f"Found files/dirs in {RAG_DOCS_DIR}: {all_files_in_dir}") # Added log
 
         # Get all files in directory with common text extensions
-        extensions = ['.txt', '.md', '.csv', '.json', '.html', '.xml', '.py', '.js', '.ts', '.css']
+        extensions = ['.txt', '.md', '.csv', '.json', '.html', '.xml', '.py', '.js', '.ts', '.css', '.pdf']
         print(f"Allowed extensions: {extensions}") # Added log
         files = []
         for ext in extensions:
             files.extend(Path(RAG_DOCS_DIR).glob(f"*{ext}"))
-
+     
         print(f"Files matching allowed extensions: {files}") # Added log
 
         added_count = 0
@@ -241,6 +277,12 @@ class RAGSystem:
                 file_path_str = str(file_path)
                 file_last_modified = os.path.getmtime(file_path_str)
                 
+                if file_path.suffix.lower() == '.pdf':
+                    content = self.pdf_to_text(file_path_str)
+                else:
+                    with open(file_path_str, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                
                 # Check if this file is already in our documents by path
                 existing_doc_id = None
                 for doc_id, doc in self.documents.items():
@@ -252,8 +294,11 @@ class RAGSystem:
                     # Document exists, check if it's been modified
                     if file_last_modified > self.documents[existing_doc_id].last_modified:
                         # File has been modified, update the document
-                        with open(file_path_str, 'r', encoding='utf-8') as f:
-                            content = f.read()
+                        if file_path.suffix.lower() == '.pdf':
+                            content = self.pdf_to_text(file_path_str)
+                        else:
+                            with open(file_path_str, 'r', encoding='utf-8') as f:
+                                content = f.read()
                         
                         # Generate new embedding
                         embedding = self.embedding_model.generate_embedding(content)
@@ -277,8 +322,11 @@ class RAGSystem:
                         self.documents[existing_doc_id].in_folder = True
                 else:
                     # New document, add it
-                    with open(file_path_str, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                    if file_path.suffix.lower() == '.pdf':
+                        content = self.pdf_to_text(file_path_str)
+                    else:
+                        with open(file_path_str, 'r', encoding='utf-8') as f:
+                            content = f.read()
                     
                     # Use filename as title
                     title = file_path.stem
@@ -338,23 +386,23 @@ class RAGSystem:
         Args:
             query: The search query
             top_k: Number of documents to retrieve
-            
+             
         Returns:
             List of (document, similarity_score) tuples
         """
         if self.index.ntotal == 0:
             print("No documents in the index")
             return []
-        
+         
         # Generate query embedding
         query_embedding = self.embedding_model.generate_embedding(query)
-        
+         
         # Normalize query embedding for cosine similarity
         faiss.normalize_L2(np.array([query_embedding], dtype=np.float32))
-        
+         
         # Search FAISS index
         scores, indices = self.index.search(np.array([query_embedding], dtype=np.float32), min(top_k, self.index.ntotal))
-        
+         
         # Get documents for the indices
         results = []
         for i, idx in enumerate(indices[0]):
@@ -367,10 +415,10 @@ class RAGSystem:
                         if index == idx:
                             doc_id = did
                             break
-                    
+                     
                     if doc_id and doc_id in self.documents:
                         results.append((self.documents[doc_id], float(score)))
-        
+         
         results.sort(key=lambda x: x[1], reverse=True)
         return results
 
@@ -380,27 +428,27 @@ class RAGSystem:
         
         Args:
             doc_id: The ID of the document to remove
-            
+             
         Returns:
             True if successful, False otherwise
         """
         if doc_id not in self.documents:
             print(f"Document with ID {doc_id} not found")
             return False
-        
+         
         # Currently, FAISS doesn't support direct deletion of vectors
         # To properly implement this, we'd need to rebuild the index without the document
         # For now, we'll just remove it from our documents list
         print(f"Removing document with ID: {doc_id}")
         del self.documents[doc_id]
-        
+         
         # Remove from doc_id_to_index mapping
         if doc_id in self.doc_id_to_index:
             del self.doc_id_to_index[doc_id]
-        
+         
         # Save the updated document list
         self._save_documents()
-        
+         
         return True
 
     def remove_all_documents(self) -> None:

@@ -296,4 +296,12 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Warning: Could not remove temp file at startup: {e}")
     
+    # Scan RAG_docs folder on startup
+    try:
+        rag_system = get_rag_system()
+        result = rag_system.scan_rag_docs_folder()
+        print("RAG_docs scan result:", result)
+    except Exception as e:
+        print(f"Error scanning RAG_docs on startup: {e}")
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)

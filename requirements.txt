@@ -1,4 +1,4 @@
-e#pip install --only-binary=:all: blis
+#pip install --only-binary=:all: blis
 #pip install --upgrade pip setuptools wheel
 fastapi
 uvicorn
@@ -17,3 +17,6 @@ huggingface_hub[hf_xet]
 llama-cpp-python
 faiss-cpu==1.7.4
 sentence-transformers>=2.2.2
+pytesseract
+Pillow
+pdf2image
