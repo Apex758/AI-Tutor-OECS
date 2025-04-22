@@ -18,7 +18,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript }) => {
   const getLineStyle = (line: string) => {
     if (line.startsWith('You:')) {
       return 'mb-2 text-blue-800 self-start max-w-3/4';
-    } else if (line.startsWith('AI Tutor:')) {
+    } else if (line.startsWith('PEARL:')) {
       return 'mb-2 text-green-800 self-end max-w-3/4 text-right';
     } else {
       return 'mb-2 text-gray-800';

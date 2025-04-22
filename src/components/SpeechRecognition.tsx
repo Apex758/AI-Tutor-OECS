@@ -50,7 +50,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           
           // Add the greeting to the transcript if callback provided
           if (onTranscriptUpdate) {
-            onTranscriptUpdate("AI Tutor: " + response.data.greeting);
+            onTranscriptUpdate("PEARL: " + response.data.greeting);
           }
         }
       } else {
@@ -58,9 +58,9 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       }
     } catch (error) {
       console.error('Error getting greeting:', error);
-      setError('Failed to connect to AI Tutor. Please check if the server is running.');
+      setError('Failed to connect to PEARL. Please check if the server is running.');
       if (onTranscriptUpdate) {
-        onTranscriptUpdate("System: Connection error - Please check if the AI Tutor server is running.");
+        onTranscriptUpdate("System: Connection error - Please check if the PEARL server is running.");
       }
     } finally {
       setIsProcessing(false);
@@ -148,7 +148,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
-          onTranscriptUpdate("AI Tutor: " + response.data.answer);
+          onTranscriptUpdate("PEARL: " + response.data.answer);
         }
         
         // Play the response audio if available
@@ -185,7 +185,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           // The request was made but no response was received
           logMessage = 'No response received from server.';
           console.error(logMessage, error.request);
-          errorMessage = 'Could not connect to the AI Tutor server.';
+          errorMessage = 'Could not connect to the PEARL server.';
         } else {
           // Something happened in setting up the request that triggered an Error
           logMessage = 'Axios request setup error:';
