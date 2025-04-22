@@ -2,6 +2,7 @@ from TTS.api import TTS
 import whisper
 import os
 import shutil
+import re # Import the regex module
 
 # Fixed filename for TTS output to avoid accumulating files
 TTS_OUTPUT_FILENAME = "current_response.wav"
@@ -21,8 +22,12 @@ def generate_tts_audio(text: str) -> str:
         except Exception as e:
             print(f"Warning: Could not remove old audio file: {e}")
     
-    # Generate new audio
-    tts_model.tts_to_file(text=text, file_path=TTS_OUTPUT_PATH)
+    # Clean the text: remove [DRAW:...] tags
+    cleaned_text = re.sub(r'\[DRAW:.*?\]', '', text).strip()
+    print(f"Cleaned text for TTS: {cleaned_text}") # Optional: for debugging
+    
+    # Generate new audio using cleaned text
+    tts_model.tts_to_file(text=cleaned_text, file_path=TTS_OUTPUT_PATH)
     
     return TTS_OUTPUT_FILENAME
 

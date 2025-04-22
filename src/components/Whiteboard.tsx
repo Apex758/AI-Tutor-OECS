@@ -3,7 +3,7 @@ import Konva from 'konva';
 import { Stage, Layer, Line, Rect, Circle, Text, Image } from 'react-konva';
 import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon } from 'lucide-react';
 import SubtitleDisplay from './SubtitleDisplay';
-import { useTTS, DrawingInstruction } from '../context/TTSContext';
+import { useTTS } from '../context/TTSContext';
 
 interface ToolButtonProps {
   onClick: () => void;

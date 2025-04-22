@@ -89,10 +89,12 @@ class DrawingGenerator:
         elif cmd_type == "LINE":
             drawing.update({
                 "type": "line",
-                "startX": base_x + random.randint(-50, 50),
-                "startY": base_y + random.randint(-50, 50),
-                "endX": base_x + 100 + random.randint(-20, 20),
-                "endY": base_y + 100 + random.randint(-20, 20),
+                # Use base coordinates directly for start, remove randomness for consistency
+                "startX": base_x,
+                "startY": base_y,
+                # Draw a fixed horizontal line of length 100
+                "endX": base_x + 100,
+                "endY": base_y,
                 "color": "#00CC00"
             })
             
@@ -126,17 +128,18 @@ class DrawingGenerator:
                 ]
                 
         elif cmd_type == "PATH":
-            # Create a simple path (e.g., for division lines)
-            points = []
-            start_x = base_x + random.randint(-50, 50)
-            start_y = base_y + random.randint(-50, 50)
+            # Create a simple, consistent path (e.g., a horizontal zigzag)
+            start_x = base_x # Use base coordinates directly
+            start_y = base_y
             
-            # Generate some random points for the path
-            for i in range(3):
-                points.append({
-                    "x": start_x + i * 40 + random.randint(-10, 10),
-                    "y": start_y + i * 30 + random.randint(-10, 10)
-                })
+            # Define points for a fixed zigzag path
+            points = [
+                {"x": start_x, "y": start_y},
+                {"x": start_x + 25, "y": start_y - 15},
+                {"x": start_x + 50, "y": start_y},
+                {"x": start_x + 75, "y": start_y + 15},
+                {"x": start_x + 100, "y": start_y}
+            ]
             
             drawing.update({
                 "type": "path",
