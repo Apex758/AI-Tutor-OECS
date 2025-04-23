@@ -199,39 +199,62 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
       promptInputRef.current.focus();
     }
   }, [showPrompt]);
-
+  
   // Effect to handle dynamic drawing creation from drawings context
   useEffect(() => {
-    console.log("Drawings context changed:", { drawings, activeDrawingIds });
+    console.log("Drawings context changed:", { 
+      drawings: drawings.map(d => ({id: d.id, type: d.type})), 
+      activeDrawingIds 
+    });
     
-    if (!drawings || !activeDrawingIds.length) {
-      console.log("No drawings or active IDs");
+    if (!drawings || drawings.length === 0) {
+      console.log("No drawings to process");
       return;
     }
     
-    // Find newly activated drawings
-    const newDrawings = drawings.filter(d =>
-      activeDrawingIds.includes(d.id) &&
-      !shapes.some(s => s.id === d.id) &&
+    if (activeDrawingIds.length === 0) {
+      console.log("No active drawing IDs, but we have drawings. Adding all drawings as shapes.");
+      // If we have drawings but no active IDs, process all drawings anyway
+      processPendingDrawings(drawings);
+      return;
+    }
+    
+    // Find drawings that need to be processed (either newly activated or without IDs)
+    const drawingsToProcess = drawings.filter(d => 
+      // Include drawings without IDs
+      !d.id || 
+      // Include drawings with IDs that are active
+      (d.id && activeDrawingIds.includes(d.id)) && 
+      // Exclude drawings that are already in shapes or lines
+      !shapes.some(s => s.id === d.id) && 
       !lines.some(l => l.id === d.id)
     );
     
-    console.log("Filtered new drawings:", newDrawings);
+    console.log("Filtered drawings to process:", drawingsToProcess);
     
-    if (newDrawings.length === 0) {
+    if (drawingsToProcess.length === 0) {
       console.log("No new drawings to process");
       return;
     }
     
+    processPendingDrawings(drawingsToProcess);
+  }, [activeDrawingIds, drawings]);
+
+  // Helper function to process pending drawings
+  const processPendingDrawings = (drawingsToProcess: DrawingInstruction[]) => {
     // Add new shapes or lines
     const newShapes: Shape[] = [];
     const newLines: Line[] = [];
     
-    newDrawings.forEach(drawing => {
+    drawingsToProcess.forEach(drawing => {
       console.log("Processing drawing:", drawing);
+      
+      // Ensure drawing has an ID
+      const drawingId = drawing.id || `processed-id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
       if (drawing.type === 'apple' || drawing.type === 'chocolate') {
         const shape: Shape = {
-          id: drawing.id,
+          id: drawingId,
           tool: drawing.type as 'apple' | 'chocolate',
           x: drawing.x,
           y: drawing.y,
@@ -241,21 +264,35 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
         };
         console.log("Created shape:", shape);
         newShapes.push(shape);
+      } else if (drawing.type === 'pencil') {
+        const shape: Shape = {
+          id: drawingId,
+          tool: 'rectangle', // We'll use rectangle for pencils
+          x: drawing.x,
+          y: drawing.y,
+          color: '#000000',
+          strokeWidth: 2,
+          width: 50,  // Give it some size if not specified
+          height: 8,
+          count: drawing.count
+        };
+        console.log("Created pencil shape:", shape);
+        newShapes.push(shape);
       } else if (drawing.type === 'text' || drawing.type === 'number') {
         newShapes.push({
-          id: drawing.id,
+          id: drawingId,
           tool: 'text',
           x: drawing.x,
           y: drawing.y,
           color: '#000000',
           strokeWidth: 1,
-          text: drawing.type === 'number' ? drawing.value : drawing.text || '',
+          text: drawing.type === 'number' ? String(drawing.value) : drawing.text || '',
           fontSize: drawing.fontSize || 24,
           fontFamily: drawing.fontFamily || 'Arial'
         });
       } else if (drawing.type === 'operator') {
         newShapes.push({
-          id: drawing.id,
+          id: drawingId,
           tool: 'text',
           x: drawing.x,
           y: drawing.y,
@@ -290,7 +327,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
       }]);
       setHistoryStep(historyStep + 1);
     }
-  }, [activeDrawingIds, drawings, historyStep, history, lines, shapes]);
+  };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     isDrawing.current = true;
@@ -407,7 +444,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
     }
     
     console.log("Wand button clicked. Processing the request.");
-   
+  
     // Apply glow effect
     setIsGlowing(true);
     setTimeout(() => {
@@ -475,31 +512,83 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
         const result = await response.json();
         console.log("Response from backend:", result);
         
-        // Process the result - ensure it gets to TTS
-        // This code mimics what happens in SpeechRecognition.tsx
+        // Process the result - ensure it gets to TTS and scene elements are displayed
         if (result && result.answer) {
-          if (typeof result.answer === 'object' && result.answer.explanation) {
-            // Send the explanation to TTS via context
-            setCurrentTTS(result.answer.explanation);
+          // Reset active drawings first
+          resetActiveDrawings();
+          
+          if (typeof result.answer === 'object') {
+            let explanationText = result.answer.explanation;
+            let sceneElements = result.answer.scene || [];
+            let finalAnswer = result.answer.final_answer;
             
-            // If there are scene elements, add them to the whiteboard
-            if (result.answer.scene && Array.isArray(result.answer.scene)) {
-              setDrawings(result.answer.scene);
-              result.answer.scene.forEach(drawing => {
-                if (drawing.id) {
-                  activateDrawing(drawing.id);
+            // Check if explanation is JSON string and parse it if needed
+            if (typeof explanationText === 'string' && 
+                explanationText.trim().startsWith('{') && 
+                explanationText.trim().endsWith('}')) {
+              try {
+                const parsedExplanation = JSON.parse(explanationText);
+                
+                // If we've parsed an object with explanation and scene properties, use those
+                if (parsedExplanation.explanation) {
+                  explanationText = parsedExplanation.explanation;
+                  console.log("Extracted explanation text from nested JSON");
+                  
+                  // If there's a scene property in the nested JSON, use that too
+                  if (parsedExplanation.scene && Array.isArray(parsedExplanation.scene)) {
+                    sceneElements = parsedExplanation.scene;
+                    console.log("Extracted scene elements from nested JSON:", sceneElements);
+                  }
+                  
+                  // If there's a final_answer property in the nested JSON, use that too
+                  if (parsedExplanation.final_answer) {
+                    finalAnswer = parsedExplanation.final_answer;
+                    console.log("Extracted final_answer from nested JSON");
+                  }
                 }
-              });
+              } catch (error) {
+                console.log("Explanation text is not valid JSON, using as-is");
+              }
             }
             
-            // Store final_answer if available for validation
-            if (result.answer.final_answer) {
-              localStorage.setItem('currentProblemAnswer', 
-                                 JSON.stringify(result.answer.final_answer));
+            // Send the clean explanation to TTS via context
+            setCurrentTTS(explanationText);
+            
+            // Process scene elements - make sure they have IDs
+            console.log("Processing scene elements:", sceneElements);
+            if (sceneElements && sceneElements.length > 0) {
+              // Ensure each scene element has an ID
+              const processedScene = sceneElements.map((element, index) => {
+                if (!element.id) {
+                  return { ...element, id: `auto-id-${index}` };
+                }
+                return element;
+              });
+              
+              // Set the scene elements in the drawing context
+              console.log("Setting drawings:", processedScene);
+              setDrawings(processedScene);
+              
+              // Activate all drawings immediately
+              processedScene.forEach(drawing => {
+                const id = drawing.id || `auto-id-${processedScene.indexOf(drawing)}`;
+                console.log(`Immediately activating drawing: ${id}`);
+                activateDrawing(id);
+              });
+            } else {
+              console.log("No scene elements to display");
+              setDrawings([]);
+            }
+            
+            // Store final answer if available for validation
+            if (finalAnswer) {
+              localStorage.setItem('currentProblemAnswer', JSON.stringify(finalAnswer));
+              console.log("Stored final answer for validation:", finalAnswer);
             }
           } else {
             // Simple text response
             setCurrentTTS(String(result.answer));
+            setDrawings([]);
           }
         }
         
@@ -523,7 +612,6 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
       console.error("Error processing request:", error);
     }
   };
-
   // Handle pressing Enter in prompt input
   const handlePromptKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

@@ -13,6 +13,7 @@ TTS_OUTPUT_PATH = os.path.join(TTS_OUTPUT_DIR, TTS_OUTPUT_FILENAME)
 # Coqui TTS (CPU)
 tts_model = TTS(model_name="tts_models/en/ljspeech/glow-tts", progress_bar=False, gpu=False)
 
+# Modified generate_tts_audio function in backend/speech.py
 def generate_tts_audio(text: str) -> str:
     os.makedirs(TTS_OUTPUT_DIR, exist_ok=True)
     
@@ -23,8 +24,32 @@ def generate_tts_audio(text: str) -> str:
         except Exception as e:
             print(f"Warning: Could not remove old audio file: {e}")
     
-    # First remove any JSON formatting and backslashes
-    cleaned_text = text.replace('\\', '').replace('```json', '').replace('```', '').strip()
+    # First check if text contains JSON structure
+    cleaned_text = text
+    try:
+        # Check for JSON string with explanation field
+        if text.startswith('{') and text.endswith('}') and '"explanation"' in text:
+            json_data = json.loads(text)
+            if 'explanation' in json_data and isinstance(json_data['explanation'], str):
+                cleaned_text = json_data['explanation']
+                print(f"Extracted explanation from JSON for TTS: {cleaned_text[:100]}...")
+        
+        # Check for code blocks with JSON
+        elif '```json' in text:
+            json_start = text.find('```json') + 7
+            json_end = text.rfind('```')
+            if json_start > 0 and json_end > json_start:
+                json_str = text[json_start:json_end].strip()
+                json_data = json.loads(json_str)
+                if 'explanation' in json_data and isinstance(json_data['explanation'], str):
+                    cleaned_text = json_data['explanation']
+                    print(f"Extracted explanation from JSON block for TTS: {cleaned_text[:100]}...")
+    except Exception as e:
+        print(f"Error parsing JSON in TTS processing: {e}")
+        # Fall back to using the original text if JSON parsing fails
+    
+    # Then remove any remaining JSON formatting and backslashes
+    cleaned_text = cleaned_text.replace('\\', '').replace('```json', '').replace('```', '').strip()
     
     # Then remove [DRAW:...] tags
     cleaned_text = re.sub(r'\[DRAW:.*?\]', '', cleaned_text).strip()

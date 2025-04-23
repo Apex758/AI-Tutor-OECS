@@ -204,7 +204,7 @@ async def text_to_speech(request: TTSRequest):
 
 
 
-
+# Modified tutor/text endpoint to ensure proper JSON handling
 @app.post("/tutor/text")
 async def tutor_from_text(request: TextOnlyRequest):
     """
@@ -232,15 +232,18 @@ async def tutor_from_text(request: TextOnlyRequest):
                 if isinstance(answer, dict) and isinstance(answer.get('answer', {}), dict):
                     explanation = answer['answer'].get('explanation', '')
                     
-                    # Check if explanation is a JSON string
+                    # Process explanation - if it's JSON, extract the explanation text
                     try:
-                        explanation_json = json.loads(explanation)
-                        if isinstance(explanation_json, dict) and 'explanation' in explanation_json:
-                            # Use the 'explanation' field from the JSON for TTS
-                            tts_text = explanation_json['explanation']
+                        if explanation.startswith('{') and explanation.endswith('}'):
+                            explanation_json = json.loads(explanation)
+                            if isinstance(explanation_json, dict) and 'explanation' in explanation_json:
+                                # Use the 'explanation' field from the JSON for TTS
+                                tts_text = explanation_json['explanation']
+                            else:
+                                tts_text = explanation
                         else:
                             tts_text = explanation
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, AttributeError):
                         tts_text = explanation
                     
                     # Use the extracted text for TTS
@@ -271,12 +274,21 @@ async def tutor_from_text(request: TextOnlyRequest):
                             "audio": audio_path
                         }
             
-            # Update conversation history
+            # Update conversation history - store only the clean explanation text
             conversation_history.append({"role": "user", "content": request.text})
             
             # Extract explanation from structured response if available
             if isinstance(response, dict) and isinstance(response.get('answer', {}), dict):
                 explanation = response['answer'].get('explanation', '')
+                
+                # Remove any JSON formatting if present
+                if isinstance(explanation, str) and explanation.startswith('{') and explanation.endswith('}'):
+                    try:
+                        explanation_json = json.loads(explanation)
+                        if isinstance(explanation_json, dict) and 'explanation' in explanation_json:
+                            explanation = explanation_json['explanation']
+                    except json.JSONDecodeError:
+                        pass
                 
                 # Check if there's a final_answer field to include in the conversation history
                 final_answer = response['answer'].get('final_answer', {})
@@ -357,6 +369,8 @@ async def tutor_from_text(request: TextOnlyRequest):
     except Exception as e:
         print("Text Processing Error:", e)
         return {"error": str(e)}
+
+    
     
     
 @app.post("/update_transcript")

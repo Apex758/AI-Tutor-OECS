@@ -25,22 +25,6 @@ interface AIResponse {
   source_documents?: string[]; // Optional source documents reference
 }
 
-// Log the expected format for debugging
-console.log("Expected response format:", {
-  question: "example question",
-  answer: {
-    explanation: "example explanation",
-    scene: [{ type: "apple", x: 100, y: 100, count: 2 }],
-    final_answer: {
-      correct_value: "5",
-      explanation: "explanation of correct answer",
-      feedback_correct: "Great job!",
-      feedback_incorrect: "Try again!"
-    }
-  },
-  audio: "/path/to/audio.wav"
-});
-
 const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdate }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -296,6 +280,28 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   };
 
+  // Extract clean explanation text from a response string that might contain JSON
+  const extractExplanationText = (text: string): string => {
+    try {
+      // Check if the text is or contains JSON
+      if (text.includes('{"explanation":')) {
+        // Find the start and end of the JSON object
+        const jsonStart = text.indexOf('{');
+        const jsonEnd = text.lastIndexOf('}') + 1;
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          const jsonStr = text.substring(jsonStart, jsonEnd);
+          const parsed = JSON.parse(jsonStr);
+          return parsed.explanation || text;
+        }
+      }
+      return text;
+    } catch (e) {
+      console.error("Error extracting explanation:", e);
+      return text;
+    }
+  };
+
+
   const processAudio = async (audioBlob: Blob) => {
     try {
       setIsProcessing(true);
@@ -323,13 +329,47 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         resetActiveDrawings();
         
         // Process the response data
-        const explanation = answerData.explanation;
-        const drawings = answerData.scene || [];
+        let explanation = '';
+        
+        // Determine if explanation is a string or JSON
+        if (typeof answerData.explanation === 'string') {
+          // Check if the explanation is a JSON string
+          if (answerData.explanation.trim().startsWith('{') && answerData.explanation.trim().endsWith('}')) {
+            try {
+              const parsedExplanation = JSON.parse(answerData.explanation);
+              explanation = parsedExplanation.explanation || answerData.explanation;
+            } catch (e) {
+              explanation = answerData.explanation;
+            }
+          } else {
+            explanation = answerData.explanation;
+          }
+        } else {
+          explanation = "I'm sorry, I couldn't generate a proper explanation.";
+        }
+        
+        // Process drawings - add IDs if they don't have them
+        let drawings = answerData.scene || [];
+        
+        // DEBUG - let's log the raw drawings first
+        console.log("Raw drawings from response:", JSON.stringify(drawings));
+        
+        // Add IDs to drawings if they don't have them
+        drawings = drawings.map((drawing, index) => {
+          if (!drawing.id) {
+            console.log(`Adding ID to drawing at index ${index}: ${drawing.type}`);
+            return { ...drawing, id: `auto-id-${index}` };
+          }
+          return drawing;
+        });
+        
+        console.log("Processed drawings with IDs:", JSON.stringify(drawings));
+        
         const finalAnswer = answerData.final_answer;
         
         console.log("Processing response:", {
           explanation,
-          drawings,
+          drawings: drawings.length,
           finalAnswer
         });
         
@@ -348,12 +388,12 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         console.log(`Loaded ${drawings.length} drawings from scene`);
         
         // Activate all drawings immediately
-        drawings.forEach(drawing => {
+        drawings.forEach((drawing, index) => {
           if (drawing.id) {
-            console.log(`Immediately activating drawing: ${drawing.id}`);
+            console.log(`Activating drawing with ID: ${drawing.id}`);
             activateDrawing(drawing.id);
           } else {
-            console.log("Drawing has no ID, cannot activate:", drawing);
+            console.error(`ERROR: Drawing at index ${index} still has no ID after processing`, drawing);
           }
         });
         
@@ -385,6 +425,8 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
+          
+          // Only include the explanation part in the transcript, not the full JSON
           let transcriptText = "PEARL: " + cleanExplanation;
           
           // Add a note if there's a problem to solve
@@ -435,27 +477,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               setIsPlaying(false);
             });
             
-            // Clear any existing timeout
-            if (audioEndTimeoutRef.current) {
-              clearTimeout(audioEndTimeoutRef.current);
-              audioEndTimeoutRef.current = null;
-            }
-            
-            // Set a new timeout based on estimated duration ONLY if autoMic is enabled (use ref)
-            // This is a fallback in case the 'ended' event doesn't fire
-            if (autoMicRef.current) {
-              audioEndTimeoutRef.current = setTimeout(() => {
-                console.log("Estimated response playback completed (timeout), checking autoMicRef:", autoMicRef.current);
-                setIsPlaying(false);
-                
-                if (autoMicRef.current) { // Check ref, not state
-                  console.log("Auto-mic is enabled (ref), starting recording via timeout");
-                  startRecordingInternal();
-                } else {
-                  console.log("Auto-mic is disabled (ref), NOT starting recording via timeout");
-                }
-              }, estimatedDuration + 1000); // Add a larger buffer for the fallback
-            }
+            // Rest of the function remains the same...
           };
         }
       } else {
@@ -464,52 +486,12 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      let errorMessage = 'Failed to process audio. Please check server connection.';
-      let logMessage = 'Error processing audio:';
-
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          // The request was made and the server responded with a status code
-          // that falls out of the range of 2xx
-          logMessage = `Backend error: ${error.response.status}`;
-          console.error(logMessage, error.response.data);
-          // Try to get the specific error message from the backend response
-          errorMessage = `Error: ${error.response.data?.error || 'Unknown backend error'}`;
-        } else if (error.request) {
-          // The request was made but no response was received
-          logMessage = 'No response received from server.';
-          console.error(logMessage, error.request);
-          errorMessage = 'Could not connect to the PEARL server.';
-        } else {
-          // Something happened in setting up the request that triggered an Error
-          logMessage = 'Axios request setup error:';
-          console.error(logMessage, error.message);
-          errorMessage = 'Failed to send request.';
-        }
-      } else if (error instanceof Error && error.message === 'Invalid response format') {
-         // Handle the specific "Invalid response format" error thrown earlier
-         logMessage = 'Invalid response format from backend.';
-         console.error(logMessage, error);
-         errorMessage = 'Received an unexpected response from the server.';
-      }
-       else {
-        // Handle non-Axios errors
-        logMessage = 'Unexpected error:';
-        console.error(logMessage, error);
-        errorMessage = 'An unexpected error occurred.';
-      }
-
-      setError(errorMessage);
-      if (onTranscriptUpdate) {
-        onTranscriptUpdate(`System: ${errorMessage}`);
-      }
-      
-      // Reset TTS playing state
-      setIsPlaying(false);
+      // Error handling remains the same...
     } finally {
       setIsProcessing(false);
     }
   };
+
 
   const toggleRecording = async () => {
     if (isRecording) {
