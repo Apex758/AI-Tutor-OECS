@@ -4,19 +4,22 @@ import React, { createContext, useState, useContext, ReactNode } from 'react';
 export interface DrawingInstruction {
   id: string;
   type: string;
-  startX?: number;
-  startY?: number;
+  x: number;
+  y: number;
   width?: number;
   height?: number;
   radius?: number;
   endX?: number;
   endY?: number;
   points?: {x: number, y: number}[];
-  color: string;
-  lineWidth: number;
+  color?: string;
+  lineWidth?: number;
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  count?: number;
+  value?: string;
+  symbol?: string;
 }
 
 interface TTSContextType {
@@ -46,14 +49,24 @@ export const TTSProvider: React.FC<TTSProviderProps> = ({ children }) => {
   const [drawings, setDrawings] = useState<DrawingInstruction[]>([]);
   const [activeDrawingIds, setActiveDrawingIds] = useState<string[]>([]);
 
+  // Wrap setDrawings to add logging
+  const handleSetDrawings = (newDrawings: DrawingInstruction[]) => {
+    console.log("Setting new drawings:", newDrawings);
+    setDrawings(newDrawings);
+  };
+
   const activateDrawing = (id: string) => {
-    setActiveDrawingIds(prev => [...prev, id]);
-    console.log(`Activated drawing: ${id}`);
+    console.log(`Activating drawing: ${id}`);
+    setActiveDrawingIds(prev => {
+      const newIds = [...prev, id];
+      console.log("Updated active drawing IDs:", newIds);
+      return newIds;
+    });
   };
 
   const resetActiveDrawings = () => {
+    console.log('Resetting all active drawings');
     setActiveDrawingIds([]);
-    console.log('Reset all active drawings');
   };
 
   const value = {
@@ -65,7 +78,7 @@ export const TTSProvider: React.FC<TTSProviderProps> = ({ children }) => {
     setCurrentTTS,
     setIsPlaying,
     setAudioDuration,
-    setDrawings,
+    setDrawings: handleSetDrawings,
     activateDrawing,
     resetActiveDrawings
   };

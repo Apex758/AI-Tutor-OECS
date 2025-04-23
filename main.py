@@ -143,7 +143,12 @@ async def tutor_from_audio(file: UploadFile = File(...)):
             return error_response
 
     except Exception as e:
-        print("Audio Processing Error:", e)
+        try:
+            print("Audio Processing Error:", e)
+        except UnicodeEncodeError:
+            # If printing the error directly fails due to encoding, print a safe version
+            safe_error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
+            print(f"Audio Processing Error (safe print): {safe_error_message}")
         return {"error": str(e)}
 
         

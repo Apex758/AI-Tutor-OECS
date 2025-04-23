@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Konva from 'konva';
-import { Stage, Layer, Line, Rect, Circle, Text, Image } from 'react-konva';
+import { Stage, Layer, Line, Rect, Circle, Text, Image, Ellipse } from 'react-konva';
 import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon } from 'lucide-react';
 import SubtitleDisplay from './SubtitleDisplay';
 import { useTTS } from '../context/TTSContext';
@@ -21,9 +21,83 @@ interface Line {
   strokeWidth: number;
 }
 
+// Apple component
+const Apple: React.FC<{ x: number; y: number }> = ({ x, y }) => (
+  <>
+    <Circle
+      x={x}
+      y={y}
+      radius={20}
+      fill="#d62828"
+      stroke="#6a040f"
+      strokeWidth={2}
+      shadowColor="black"
+      shadowBlur={5}
+      shadowOffset={{ x: 2, y: 2 }}
+      shadowOpacity={0.3}
+    />
+    <Ellipse
+      x={x + 10}
+      y={y - 25}
+      radiusX={8}
+      radiusY={4}
+      fill="#80ed99"
+      rotation={-20}
+    />
+    <Rect
+      x={x - 2}
+      y={y - 30}
+      width={4}
+      height={10}
+      fill="#4b3f36"
+      cornerRadius={2}
+    />
+  </>
+);
+
+// Chocolate component
+const Chocolate: React.FC<{ x: number; y: number }> = ({ x, y }) => {
+  const segments = [];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 2; j++) {
+      segments.push(
+        <Rect
+          key={`segment-${i}-${j}`}
+          x={x - 12 + (i * 10)}
+          y={y - 7 + (j * 9)}
+          width={8}
+          height={8}
+          stroke="#2a1810"
+          strokeWidth={0.5}
+        />
+      );
+    }
+  }
+
+  return (
+    <>
+      <Rect
+        x={x - 15}
+        y={y - 10}
+        width={30}
+        height={20}
+        fill="#4a3728"
+        stroke="#2a1810"
+        strokeWidth={1}
+        cornerRadius={2}
+        shadowColor="black"
+        shadowBlur={3}
+        shadowOffset={{ x: 1, y: 1 }}
+        shadowOpacity={0.2}
+      />
+      {segments}
+    </>
+  );
+};
+
 interface Shape {
   id?: string;
-  tool: 'rectangle' | 'circle' | 'text';
+  tool: 'rectangle' | 'circle' | 'text' | 'apple' | 'chocolate';
   x: number;
   y: number;
   width?: number;
@@ -34,6 +108,7 @@ interface Shape {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  count?: number;
 }
 
 const ToolButton: React.FC<ToolButtonProps> = ({ 
@@ -91,81 +166,68 @@ const Whiteboard: React.FC = () => {
 
   // Effect to handle dynamic drawing creation from drawings context
   useEffect(() => {
-    if (!drawings || !activeDrawingIds.length) return;
+    console.log("Drawings context changed:", { drawings, activeDrawingIds });
+    
+    if (!drawings || !activeDrawingIds.length) {
+      console.log("No drawings or active IDs");
+      return;
+    }
     
     // Find newly activated drawings
-    const newDrawings = drawings.filter(d => 
-      activeDrawingIds.includes(d.id) && 
-      !shapes.some(s => s.id === d.id) && 
+    const newDrawings = drawings.filter(d =>
+      activeDrawingIds.includes(d.id) &&
+      !shapes.some(s => s.id === d.id) &&
       !lines.some(l => l.id === d.id)
     );
     
-    if (newDrawings.length === 0) return;
+    console.log("Filtered new drawings:", newDrawings);
+    
+    if (newDrawings.length === 0) {
+      console.log("No new drawings to process");
+      return;
+    }
     
     // Add new shapes or lines
     const newShapes: Shape[] = [];
     const newLines: Line[] = [];
     
     newDrawings.forEach(drawing => {
-      if (drawing.type === 'rectangle') {
-        newShapes.push({
+      console.log("Processing drawing:", drawing);
+      if (drawing.type === 'apple' || drawing.type === 'chocolate') {
+        const shape: Shape = {
           id: drawing.id,
-          tool: 'rectangle',
-          x: drawing.startX || 0,
-          y: drawing.startY || 0,
-          width: drawing.width || 100,
-          height: drawing.height || 100,
-          color: drawing.color,
-          strokeWidth: drawing.lineWidth
-        });
-      } else if (drawing.type === 'circle') {
-        newShapes.push({
-          id: drawing.id,
-          tool: 'circle',
-          x: drawing.startX || 0,
-          y: drawing.startY || 0,
-          radius: drawing.radius || 50,
-          color: drawing.color,
-          strokeWidth: drawing.lineWidth
-        });
-      } else if (drawing.type === 'line') {
-        newLines.push({
-          id: drawing.id,
-          tool: 'pencil',
-          points: [
-            drawing.startX || 0, 
-            drawing.startY || 0, 
-            drawing.endX || 100, 
-            drawing.endY || 100
-          ],
-          color: drawing.color,
-          strokeWidth: drawing.lineWidth
-        });
-      } else if (drawing.type === 'path' && drawing.points) {
-        // Convert points array to flat array for Konva
-        const points: number[] = [];
-        drawing.points.forEach(point => {
-          points.push(point.x, point.y);
-        });
-        
-        newLines.push({
-          id: drawing.id,
-          tool: 'pencil',
-          points,
-          color: drawing.color,
-          strokeWidth: drawing.lineWidth
-        });
-      } else if (drawing.type === 'text') {
+          tool: drawing.type as 'apple' | 'chocolate',
+          x: drawing.x,
+          y: drawing.y,
+          color: '#000000',
+          strokeWidth: 2,
+          count: drawing.count
+        };
+        console.log("Created shape:", shape);
+        newShapes.push(shape);
+      } else if (drawing.type === 'text' || drawing.type === 'number') {
         newShapes.push({
           id: drawing.id,
           tool: 'text',
-          x: drawing.startX || 0,
-          y: drawing.startY || 0,
-          color: drawing.color,
+          x: drawing.x,
+          y: drawing.y,
+          color: '#000000',
           strokeWidth: 1,
-          text: drawing.text || '',
+          text: drawing.type === 'number' ? drawing.value : drawing.text || '',
           fontSize: drawing.fontSize || 24,
           fontFamily: drawing.fontFamily || 'Arial'
+        });
+      } else if (drawing.type === 'operator') {
+        newShapes.push({
+          id: drawing.id,
+          tool: 'text',
+          x: drawing.x,
+          y: drawing.y,
+          color: '#000000',
+          strokeWidth: 1,
+          text: drawing.symbol || '',
+          fontSize: 24,
+          fontFamily: 'Arial'
         });
       }
     });
@@ -204,7 +266,14 @@ const Whiteboard: React.FC = () => {
     if (tool === 'pencil' || tool === 'eraser') {
       setLines([...lines, { tool, points: [pos.x, pos.y], color: tool === 'eraser' ? '#FFFFFF' : color, strokeWidth: tool === 'eraser' ? 20 : lineWidth }]);
     } else {
-      setShapes([...shapes, { tool, x: pos.x, y: pos.y, color, strokeWidth: lineWidth }]);
+      setShapes([...shapes, {
+        tool,
+        x: pos.x,
+        y: pos.y,
+        color,
+        strokeWidth: lineWidth,
+        count: 1 // Add count for apple/chocolate shapes
+      } as Shape]); // Cast to Shape to satisfy TypeScript
     }
   };
 
@@ -508,7 +577,37 @@ const Whiteboard: React.FC = () => {
               />
             ))}
             {shapes.map((shape, i) => {
-              if (shape.tool === 'rectangle' && shape.width && shape.height) {
+              if (shape.tool === 'apple') {
+                console.log("Rendering apple shape:", shape);
+                const count = shape.count || 1;
+                const spacing = 60; // Space between apples
+                return Array.from({ length: count }).map((_, j) => {
+                  const x = shape.x + (j * spacing);
+                  console.log(`Drawing apple ${j + 1}/${count} at (${x}, ${shape.y})`);
+                  return (
+                    <Apple
+                      key={`shape-${shape.id || i}-${j}`}
+                      x={x}
+                      y={shape.y}
+                    />
+                  );
+                });
+              } else if (shape.tool === 'chocolate') {
+                console.log("Rendering chocolate shape:", shape);
+                const count = shape.count || 1;
+                const spacing = 50; // Space between chocolates
+                return Array.from({ length: count }).map((_, j) => {
+                  const x = shape.x + (j * spacing);
+                  console.log(`Drawing chocolate ${j + 1}/${count} at (${x}, ${shape.y})`);
+                  return (
+                    <Chocolate
+                      key={`shape-${shape.id || i}-${j}`}
+                      x={x}
+                      y={shape.y}
+                    />
+                  );
+                });
+              } else if (shape.tool === 'rectangle' && shape.width && shape.height) {
                 return (
                   <Rect
                     key={`shape-${shape.id || i}`}
@@ -538,8 +637,8 @@ const Whiteboard: React.FC = () => {
                     x={shape.x}
                     y={shape.y}
                     text={shape.text}
-                    fontSize={shape.fontSize}
-                    fontFamily={shape.fontFamily}
+                    fontSize={shape.fontSize || 24}
+                    fontFamily={shape.fontFamily || 'Arial'}
                     fill={shape.color}
                   />
                 );

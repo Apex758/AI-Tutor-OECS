@@ -24,9 +24,18 @@ def generate_tts_audio(text: str) -> str:
     
     # Clean the text: remove [DRAW:...] tags
     cleaned_text = re.sub(r'\[DRAW:.*?\]', '', text).strip()
-    print(f"Cleaned text for TTS: {cleaned_text}") # Optional: for debugging
     
-    # Generate new audio using cleaned text
+    # Replace common symbols with words for TTS
+    cleaned_text = cleaned_text.replace('+', ' plus ')
+    cleaned_text = cleaned_text.replace('=', ' equals ')
+    # Add more replacements if needed (e.g., '-', '*', '/')
+    
+    # Optional: Collapse multiple spaces into one
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+    
+    print(f"Final cleaned text for TTS: {cleaned_text}") # Optional: for debugging
+    
+    # Generate new audio using final cleaned text
     tts_model.tts_to_file(text=cleaned_text, file_path=TTS_OUTPUT_PATH)
     
     return TTS_OUTPUT_FILENAME

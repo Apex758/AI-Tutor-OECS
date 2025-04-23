@@ -67,34 +67,52 @@ class DrawingGenerator:
         }
         
         # Generate different types of drawings based on command type
-        if cmd_type == "CIRCLE":
+        if cmd_type == "apple":
             drawing.update({
-                "type": "circle",
-                "startX": base_x + random.randint(-50, 50),
-                "startY": base_y + random.randint(-50, 50),
-                "radius": 50,
-                "color": "#0000FF"
+                "type": "apple",
+                "x": base_x,
+                "y": base_y,
+                "count": int(params) if params.isdigit() else 1
             })
-        
-        elif cmd_type == "RECT":
+            
+        elif cmd_type == "chocolate":
             drawing.update({
-                "type": "rectangle",
-                "startX": base_x + random.randint(-50, 50),
-                "startY": base_y + random.randint(-50, 50),
-                "width": 100,
-                "height": 80,
-                "color": "#FF0000"
+                "type": "chocolate",
+                "x": base_x,
+                "y": base_y,
+                "count": int(params) if params.isdigit() else 1
+            })
+            
+        elif cmd_type == "number":
+            drawing.update({
+                "type": "text",
+                "x": base_x,
+                "y": base_y,
+                "text": params,
+                "fontSize": 24,
+                "fontFamily": "Arial",
+                "color": "#000000"
+            })
+            
+        elif cmd_type == "operator":
+            drawing.update({
+                "type": "text",
+                "x": base_x,
+                "y": base_y,
+                "text": params,  # params should be one of: +, -, =, *, /
+                "fontSize": 24,
+                "fontFamily": "Arial",
+                "color": "#000000"
             })
         
         elif cmd_type == "LINE":
             drawing.update({
                 "type": "line",
                 # Use base coordinates directly for start, remove randomness for consistency
-                "startX": base_x,
-                "startY": base_y,
+                "x": base_x,
+                "y": base_y,
                 # Draw a fixed horizontal line of length 100
-                "endX": base_x + 100,
-                "endY": base_y,
+                "width": 100,
                 "color": "#00CC00"
             })
             
@@ -103,25 +121,31 @@ class DrawingGenerator:
             parts = params.split('/')
             drawing.update({
                 "type": "text",
-                "startX": base_x,
-                "startY": base_y,
+                "x": base_x,
+                "y": base_y,
                 "text": params,
                 "fontSize": 24,
                 "fontFamily": "Arial",
                 "color": "#000000"
+                # Konva text aligns left by default, which is okay for now
             })
             
-            # Also create a line for the fraction
+            # Also create a line for the fraction, better centered
             if len(parts) == 2:
+                # Estimate text width (simple approximation)
+                approx_text_width = len(params) * 12 # Approx 12px per char at 24px font size
+                line_start_x = base_x - 5 # Start slightly left of text
+                line_end_x = base_x + approx_text_width + 5 # End slightly right of text
+                line_y = base_y + 12 # Position below the baseline of the text
+                
                 return [
-                    drawing,
+                    drawing, # The text itself
                     {
                         "id": f"{cmd_id}_line",
                         "type": "line",
-                        "startX": base_x - 10,
-                        "startY": base_y + 10,
-                        "endX": base_x + 30,
-                        "endY": base_y + 10,
+                        "x": line_start_x,
+                        "y": line_y,
+                        "width": line_end_x - line_start_x,
                         "color": "#000000",
                         "lineWidth": 2
                     }
@@ -147,12 +171,36 @@ class DrawingGenerator:
                 "color": "#663399"
             })
             
-        else:
-            # Default to a simple text element
+        elif cmd_type == "PLUS":
             drawing.update({
                 "type": "text",
-                "startX": base_x,
-                "startY": base_y,
+                "x": base_x,
+                "y": base_y,
+                "text": "+",
+                "fontSize": 24, # Match fraction size
+                "fontFamily": "Arial",
+                "color": "#000000"
+            })
+            
+        elif cmd_type == "EQUALS":
+            drawing.update({
+                "type": "text",
+                "x": base_x,
+                "y": base_y,
+                "text": "=",
+                "fontSize": 24, # Match fraction size
+                "fontFamily": "Arial",
+                "color": "#000000"
+            })
+            
+        # Add other operators like MINUS, TIMES, DIVIDE here if needed
+            
+        else:
+            # Default to a simple text element if command type is unknown
+            drawing.update({
+                "type": "text",
+                "x": base_x,
+                "y": base_y,
                 "text": params,
                 "fontSize": 20,
                 "fontFamily": "Arial",
@@ -178,13 +226,13 @@ class DrawingGenerator:
         
         # Generate drawings based on commands
         drawings = []
-        base_x = 200
-        base_y = 200
+        base_x = 100 # Start closer to top-left
+        base_y = 100 # Start closer to top-left
         
         for i, command in enumerate(commands):
-            # Adjust position for each new drawing to spread them out
-            adjusted_x = base_x + (i % 3) * 150
-            adjusted_y = base_y + (i // 3) * 120
+            # Adjust position for each new drawing - increased horizontal, decreased vertical spacing
+            adjusted_x = base_x + (i % 3) * 180 # Wider horizontal spacing
+            adjusted_y = base_y + (i // 3) * 100 # Smaller vertical spacing
             
             drawing_items = DrawingGenerator.generate_drawing_from_command(
                 command, 
@@ -232,31 +280,11 @@ class DrawingGenerator:
             "question": question,
             "answer": {
                 "explanation": processed_explanation,
-                "drawings": drawings
+                "scene": drawings
             },
             "audio": audio_path
         }
         
         return response
 
-# Testing function
-def test_drawing_generator():
-    explanation = """
-    Fractions are parts of a whole. For example, if we have a pizza {CIRCLE:pizza} 
-    and cut it into 4 equal parts with lines {PATH:division}, each part would be 
-    {FRACTION:1/4} of the whole pizza. We can also represent fractions with rectangles 
-    {RECT:fraction_rect}.
-    """
-    
-    processed_explanation, drawings = DrawingGenerator.process_explanation(explanation)
-    
-    print("Processed explanation:")
-    print(processed_explanation)
-    print("\nDrawings:")
-    for drawing in drawings:
-        print(json.dumps(drawing, indent=2))
-    
-    return processed_explanation, drawings
 
-if __name__ == "__main__":
-    test_drawing_generator()

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Settings, RefreshCw } from 'lucide-react';
+import { Mic, MicOff, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { estimateSpeechDuration } from '../utils/speechTimingUtils';
 import { useTTS, DrawingInstruction } from '../context/TTSContext';
@@ -12,11 +12,21 @@ interface SpeechRecognitionProps {
 interface AIResponse {
   question: string;
   answer: {
-    explanation: string; // Contains [DRAW:id] markers
-    drawings: DrawingInstruction[];
-  } | string; // For backward compatibility
+    explanation: string; // Text for TTS
+    scene: DrawingInstruction[]; // Drawing instructions
+  };
   audio: string; // URL to audio file
 }
+
+// Log the expected format for debugging
+console.log("Expected response format:", {
+  question: "example question",
+  answer: {
+    explanation: "example explanation",
+    scene: [{ type: "apple", x: 100, y: 100, count: 2 }]
+  },
+  audio: "/path/to/audio.wav"
+});
 
 const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdate }) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -283,11 +293,13 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       
       // Send to backend with timestamp to avoid caching
       const timestamp = new Date().getTime();
+      console.log("Sending audio to backend...");
       const response = await axios.post<AIResponse>(`http://localhost:8000/tutor/speak?t=${timestamp}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
+      console.log("Full backend response:", JSON.stringify(response.data, null, 2));
       
       // Handle the response
       if (response.data?.question) {
@@ -297,24 +309,25 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Reset active drawings
         resetActiveDrawings();
         
-        // Initialize variables for both formats
-        let explanation = '';
-        let drawings: DrawingInstruction[] = [];
-
-        // Parse the response based on its format
-        if (typeof answerData === 'string') {
-          // Old format - just a string answer
-          explanation = answerData;
-          drawings = [];
-        } else {
-          // New format with explanation and drawings
-          explanation = answerData.explanation;
-          drawings = answerData.drawings || [];
-          
-          // Store drawings in context
-          setDrawings(drawings);
-          console.log(`Loaded ${drawings.length} drawings from response`);
-        }
+        // Process the response data
+        const explanation = answerData.explanation;
+        const drawings = answerData.scene || [];
+        
+        console.log("Processing response:", {
+          explanation,
+          drawings
+        });
+        
+        // Store and activate drawings immediately
+        console.log("Setting drawings:", drawings);
+        setDrawings(drawings);
+        console.log(`Loaded ${drawings.length} drawings from scene`);
+        
+        // Activate all drawings immediately
+        drawings.forEach(drawing => {
+          console.log(`Immediately activating drawing: ${drawing.id}`);
+          activateDrawing(drawing.id);
+        });
         
         // Calculate estimated duration of response speech
         const estimatedDuration = estimateSpeechDuration(explanation);

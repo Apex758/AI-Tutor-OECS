@@ -8,7 +8,7 @@ from backend.rag_system import get_rag_system, format_retrieved_context
 import requests
 import json
 import time
-from backend.drawing_generator import DrawingGenerator
+# from backend.drawing_generator import DrawingGenerator # No longer needed for generation
 
 # Global variable to hold the LLM
 global llm
@@ -166,21 +166,45 @@ def get_answer_from_text(text):
         # Get enhanced prompt with RAG context if available
         enhanced_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
         
-        # Define the system message with drawing instructions
+        # Define the system message with the NEW JSON schema instructions
         system_message = """
         You are a helpful tutor for primary school students. Keep responses short and engaging.
         
-        When explaining math concepts, diagrams, shapes, or other visual elements, use special 
-        marking syntax to indicate where drawings should appear.
+        When your response requires a visual representation (like explaining math with objects),
+        you MUST output a JSON object containing BOTH the spoken explanation AND a scene description.
         
-        Use the following syntax for drawing elements:
-        - {CIRCLE:name} - For circular shapes
-        - {RECT:name} - For rectangular shapes
-        - {LINE:name} - For straight lines
-        - {PATH:name} - For multi-point paths
-        - {FRACTION:1/4} - For fractions (replace 1/4 with the actual fraction)
+        The JSON object MUST follow this exact schema:
+        {
+          "explanation": "The text to be spoken aloud by the TTS engine.",
+          "scene": [
+            {
+              "type": "object_type",  // e.g., "apple", "chocolate", "pencil", "number"
+              "x": number,           // x-coordinate (integer)
+              "y": number,           // y-coordinate (integer)
+              "count": number,         // (Optional) How many of this object to draw side-by-side
+              "value": string | number // (Optional) e.g., for "number" type, the actual number like 5 or "5"
+            },
+            {
+              "type": "operator",
+              "x": number,
+              "y": number,
+              "symbol": "+" | "-" | "=" | "*" | "/" // The operator symbol as a string
+            }
+            // ... more items in the scene array
+          ]
+        }
         
-        The drawings will appear exactly when the marker in your text is read aloud.
+        RULES:
+        - ALWAYS respond with a valid JSON object matching the schema.
+        - The `explanation` field should contain the complete text to be spoken.
+        - The `scene` field should be an array describing the visual elements.
+        - Allowed `type` values for objects currently include: "apple", "chocolate", "pencil", "number". More may be added later. Use "number" for digits.
+        - Allowed `symbol` values for operators are: "+", "-", "=", "*", "/".
+        - Provide reasonable integer values for `x` and `y` coordinates (e.g., between 50 and 500).
+        - Use the `count` property if multiple identical items should be drawn (e.g., 3 apples).
+        - Use the `value` property for the "number" type.
+        - If no drawing is needed, return JSON with an empty `scene` array: {"explanation": "Your text here", "scene": []}.
+        - Do NOT include any text outside the JSON object. Your entire response must be the JSON itself.
         """
         
         # Prepare the user message with context if available
@@ -220,16 +244,48 @@ def get_answer_from_text(text):
         print("OpenRouter response received")
         
         if response.status_code == 200 and "choices" in response_data and len(response_data["choices"]) > 0:
-            explanation = response_data["choices"][0]["message"]["content"]
+            llm_response_content = response_data["choices"][0]["message"]["content"]
             
-            # Process the explanation to extract drawing instructions
-            audio_path = f"/tts_output/current_response.wav?t={time.time()}"
-            result = DrawingGenerator.format_response(text, explanation, audio_path)
-            
-            # For debugging, print how many drawings were extracted
-            print(f"Extracted {len(result['answer']['drawings'])} drawings from explanation")
-            
-            return result
+            # Attempt to parse the LLM response as JSON
+            try:
+                parsed_json = json.loads(llm_response_content)
+                
+                # Validate the structure
+                if isinstance(parsed_json, dict) and \
+                   "explanation" in parsed_json and isinstance(parsed_json["explanation"], str) and \
+                   "scene" in parsed_json and isinstance(parsed_json["scene"], list):
+                    
+                    explanation_text = parsed_json["explanation"]
+                    scene_data = parsed_json["scene"]
+                    
+                    # Construct the result in the new format
+                    result = {
+                        "question": text, # Original user query
+                        "answer": {
+                            "explanation": explanation_text, # Text for TTS
+                            "scene": scene_data # Scene description for frontend
+                        }
+                        # Audio path will be added in main.py after TTS generation
+                    }
+                    print(f"Successfully parsed LLM response. Explanation: '{explanation_text[:50]}...', Scene items: {len(scene_data)}")
+                    return result
+                else:
+                    print("Error: LLM response is valid JSON but does not match the expected schema.")
+                    print(f"Received JSON: {llm_response_content}")
+                    return f"I'm sorry, I received an unexpected response format from the AI model."
+                    
+            except json.JSONDecodeError:
+                print("Error: LLM response was not valid JSON.")
+                print(f"Received content: {llm_response_content}")
+                # Fallback: return the raw content as explanation, assuming no scene
+                result = {
+                    "question": text,
+                    "answer": {
+                        "explanation": llm_response_content, # Use raw response as explanation
+                        "scene": [] # Empty scene
+                    }
+                }
+                return result
         else:
             error_message = response_data.get("error", {}).get("message", "Unknown API error")
             print(f"OpenRouter API error: {error_message}")
