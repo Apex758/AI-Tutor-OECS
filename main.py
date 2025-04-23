@@ -66,9 +66,6 @@ conversation_history = []
 
 @app.post("/tutor/speak")
 async def tutor_from_audio(file: UploadFile = File(...)):
-    """
-    Process audio from the user, transcribe it, generate a response, and return both text and audio.
-    """
     try:
         print("Step 1: Received audio file:", file.filename)
 
@@ -190,9 +187,6 @@ async def tutor_from_audio(file: UploadFile = File(...)):
 
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
-    """
-    Generate speech from text.
-    """
     try:
         audio_file = generate_tts_audio(request.text)
         return {
@@ -207,9 +201,6 @@ async def text_to_speech(request: TTSRequest):
 # Modified tutor/text endpoint to ensure proper JSON handling
 @app.post("/tutor/text")
 async def tutor_from_text(request: TextOnlyRequest):
-    """
-    Process text input from the user, generate a response, and return both text and audio.
-    """
     try:
         print("Received text input:", request.text)
         
@@ -375,9 +366,6 @@ async def tutor_from_text(request: TextOnlyRequest):
     
 @app.post("/update_transcript")
 async def update_transcript(request: TranscriptUpdateRequest):
-    """
-    Update the transcript with new text.
-    """
     # Add to conversation history
     conversation_history.append({"role": "user", "content": request.transcript})
     
@@ -392,9 +380,6 @@ async def update_transcript(request: TranscriptUpdateRequest):
 
 @app.get("/greeting")
 async def get_greeting():
-    """
-    Get a greeting to start the conversation.
-    """
     greeting = "Hello! I'm your AI tutor. How can I help you today?"
     
     # Generate TTS for the greeting
@@ -411,9 +396,6 @@ from backend.query_model import get_answer_from_image_and_prompt
 async def process_whiteboard_image(
     request: Request
 ):
-    """
-    Process the whiteboard image sent directly in the request body along with a prompt in the header.
-    """
     try:
         # Get the prompt from the header
         prompt = request.headers.get('x-prompt', '')
@@ -439,11 +421,8 @@ async def process_whiteboard_image(
 
 # =============== New RAG System Endpoints ===============
 
-@app.get("/rag/documents", response_model=List[DocumentInfo])
+@app.get("/rag/documents", responseModel=List[DocumentInfo])
 async def get_documents():
-    """
-    Get the list of all documents in the RAG system.
-    """
     try:
         rag_system = get_rag_system()
         return rag_system.get_document_list()
@@ -451,11 +430,8 @@ async def get_documents():
         print(f"Error getting document list: {e}")
         return {"error": str(e)}
 
-@app.post("/rag/scan", response_model=ScanResponse)
+@app.post("/rag/scan", responseModel=ScanResponse)
 async def scan_documents():
-    """
-    Scan the RAG_docs folder for new or updated documents.
-    """
     try:
         rag_system = get_rag_system()
         result = rag_system.scan_rag_docs_folder()
@@ -466,9 +442,6 @@ async def scan_documents():
 
 @app.post("/rag/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """
-    Upload a document to the RAG_docs folder.
-    """
     try:
         # Save the file to the RAG_docs directory
         file_path = os.path.join(RAG_DOCS_DIR, file.filename)
@@ -490,9 +463,6 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.post("/rag/remove")
 async def remove_document(request: RemoveDocumentRequest):
-    """
-    Remove a document from the RAG system (but not from the folder).
-    """
     try:
         rag_system = get_rag_system()
         success = rag_system.remove_document(request.doc_id)
@@ -508,9 +478,6 @@ async def remove_document(request: RemoveDocumentRequest):
 # Cleanup endpoint to manually clean temporary files if needed
 @app.post("/cleanup")
 async def cleanup_temp_files():
-    """
-    Clean up temporary files.
-    """
     files_cleaned = []
     
     # Clean up temp audio file

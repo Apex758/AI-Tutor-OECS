@@ -100,23 +100,10 @@ def setup_transformers_cpu_pipeline():
 
 
 def setup_openrouter_client():
-    """
-    Configure OpenRouter client.
-    """
     print("Configuring OpenRouter client")
-    return "openrouter_client"
+    return "open_router_client"
 
 def get_rag_enhanced_prompt(query, prompt_template):
-    """
-    Enhance prompt with RAG context.
-
-    Args:
-        query: User's query
-        prompt_template: Base prompt template
-
-    Returns:
-        Enhanced prompt and retrieved documents
-    """
     # Get the RAG system
     rag_system = get_rag_system()
     
@@ -358,9 +345,6 @@ from backend.image_cache import ImageCache
 image_cache = ImageCache()
 
 def get_answer_from_image_and_prompt(image_data: bytes, prompt: str) -> str:
-    """
-    Process whiteboard image and text prompt.
-    """
     try:
         # Cache image
         filename = 'whiteboard.png'

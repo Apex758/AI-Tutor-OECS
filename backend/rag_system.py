@@ -31,7 +31,6 @@ SIMILARITY_THRESHOLD = 0.7  # Minimum similarity score to consider a document re
 
 @dataclass
 class Document:
-    """Document representation in RAG system."""
     id: str
     content: str
     title: str
@@ -44,7 +43,6 @@ class Document:
         return asdict(self)
 
 class EmbeddingModel:
-    """Generate embeddings for text."""
     def __init__(self):
         print(f"Initializing embedding model: {EMBEDDING_MODEL}")
         self.tokenizer = AutoTokenizer.from_pretrained(EMBEDDING_MODEL)
@@ -81,7 +79,6 @@ class EmbeddingModel:
 
 
 class RAGSystem:
-    """RAG system using FAISS."""
     def __init__(self):
         # Create required directories
         os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
@@ -109,7 +106,6 @@ class RAGSystem:
         self.scan_rag_docs_folder()
 
     def pdf_to_text(self, pdf_path: str, timeout: int = 30) -> str:
-        """Extract text from PDF using OCR."""
         try:
             import concurrent.futures
             
@@ -175,18 +171,6 @@ class RAGSystem:
         print(f"Saved FAISS index to {self.index_path}")
     
     def add_document(self, content: str, title: str = "", original_file: str = "", metadata: Dict[str, Any] = None) -> str:
-        """
-        Add document to RAG system.
-    
-        Args:
-            content: Document text content
-            title: Optional document title
-            original_file: Original file path
-            metadata: Optional document metadata
-    
-        Returns:
-            ID of added document
-        """
         doc_id = self._generate_document_id(content, original_file)
         
         # Check if document already exists
@@ -238,12 +222,6 @@ class RAGSystem:
         return doc_id
     
     def scan_rag_docs_folder(self) -> Dict[str, Any]:
-        """
-        Scan RAG_docs folder for documents.
-    
-        Returns:
-            Scan operation statistics
-        """
         print(f"Scanning: {RAG_DOCS_DIR}")
         if not os.path.exists(RAG_DOCS_DIR):
             os.makedirs(RAG_DOCS_DIR, exist_ok=True)
@@ -350,12 +328,6 @@ class RAGSystem:
         }
     
     def get_document_list(self) -> List[Dict[str, Any]]:
-        """
-        Get list of documents with status.
-    
-        Returns:
-            List of document information
-        """
         document_list = []
         for doc_id, doc in self.documents.items():
             document_list.append({
@@ -373,16 +345,6 @@ class RAGSystem:
         return document_list
         
     def retrieve(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
-        """
-        Retrieve documents for query.
-    
-        Args:
-            query: Search query
-            top_k: Number of documents to retrieve
-    
-        Returns:
-            List of (document, similarity_score)
-        """
         if self.index.ntotal == 0:
             print("No documents in index")
             return []
@@ -404,15 +366,6 @@ class RAGSystem:
         return results
 
     def remove_document(self, doc_id: str) -> bool:
-        """
-        Remove document from RAG system.
-    
-        Args:
-            doc_id: Document ID to remove
-    
-        Returns:
-            Removal success status
-        """
         if doc_id not in self.documents:
             print(f"Document not found: {doc_id}")
             return False
@@ -426,7 +379,6 @@ class RAGSystem:
         return True
 
     def remove_all_documents(self) -> None:
-        """Remove all documents from the system."""
         print("Removing all documents from the RAG system")
         # Reset the index
         self.index = faiss.IndexFlatIP(EMBEDDING_DIMENSION)
