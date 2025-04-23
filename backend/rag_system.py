@@ -13,7 +13,7 @@ import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
 
-# Set paths for Tesseract and Poppler
+# Configure Tesseract and Poppler paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 tesseract_path = os.path.join(BASE_DIR, 'Extensions', 'Tesseract-OCR', 'tesseract.exe')
 poppler_path = os.path.join(BASE_DIR, 'Extensions', 'poppler-24.08.0', 'Library', 'bin')
@@ -21,7 +21,7 @@ poppler_path = os.path.join(BASE_DIR, 'Extensions', 'poppler-24.08.0', 'Library'
 pytesseract.pytesseract.tesseract_cmd = tesseract_path
 POPPLER_PATH = poppler_path
 
-# Constants
+# System constants
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIMENSION = 384  # Dimension of the MiniLM-L6-v2 model
 FAISS_INDEX_DIR = "vector_store"
@@ -31,29 +31,28 @@ SIMILARITY_THRESHOLD = 0.7  # Minimum similarity score to consider a document re
 
 @dataclass
 class Document:
-    """Class representing a document in the RAG system."""
+    """Document representation in RAG system."""
     id: str
     content: str
     title: str
-    original_file: str = ""  # Original file path
-    last_modified: float = 0.0  # Last modification timestamp
-    in_folder: bool = True  # Whether the file is still in the folder
+    original_file: str = ""
+    last_modified: float = 0.0
+    in_folder: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 class EmbeddingModel:
-    """Class for generating embeddings for queries and documents."""
+    """Generate embeddings for text."""
     def __init__(self):
         print(f"Initializing embedding model: {EMBEDDING_MODEL}")
         self.tokenizer = AutoTokenizer.from_pretrained(EMBEDDING_MODEL)
         self.model = AutoModel.from_pretrained(EMBEDDING_MODEL)
-        # Move to CPU
         self.model.to('cpu')
         
     def generate_embedding(self, text: str) -> np.ndarray:
-        """Generate embedding for a given text."""
+        """Generate text embedding."""
         inputs = self.tokenizer(
             text, 
             padding=True, 
@@ -82,9 +81,9 @@ class EmbeddingModel:
 
 
 class RAGSystem:
-    """Retrieval-Augmented Generation system using FAISS for vector search."""
+    """RAG system using FAISS."""
     def __init__(self):
-        # Create necessary directories
+        # Create required directories
         os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
         os.makedirs(DOCUMENT_STORE_DIR, exist_ok=True)
         os.makedirs(RAG_DOCS_DIR, exist_ok=True)
@@ -92,32 +91,28 @@ class RAGSystem:
         self.embedding_model = EmbeddingModel()
         self.index_path = os.path.join(FAISS_INDEX_DIR, "index.faiss")
         self.document_path = os.path.join(DOCUMENT_STORE_DIR, "documents.json")
-        self.documents = {}  # Document store: {id: Document}
-        self.doc_id_to_index = {}  # Mapping from document ID to FAISS index
+        self.documents = {}
+        self.doc_id_to_index = {}
         
-        # Initialize or load FAISS index
+        # Load or create FAISS index
         if os.path.exists(self.index_path):
-            print(f"Loading existing FAISS index from {self.index_path}")
+            print(f"Loading FAISS index from {self.index_path}")
             self.index = faiss.read_index(self.index_path)
             self._load_documents()
-            
-            # Initialize the doc_id_to_index mapping
             for i, doc_id in enumerate(self.documents.keys()):
                 self.doc_id_to_index[doc_id] = i
         else:
             print("Creating new FAISS index")
-            self.index = faiss.IndexFlatIP(EMBEDDING_DIMENSION)  # Inner product for cosine similarity with normalized vectors
+            self.index = faiss.IndexFlatIP(EMBEDDING_DIMENSION)
             self._save_index()
         
-        # Scan the RAG_docs directory on startup
         self.scan_rag_docs_folder()
 
     def pdf_to_text(self, pdf_path: str, timeout: int = 30) -> str:
-        """Extract text from a PDF file using OCR with timeout."""
+        """Extract text from PDF using OCR."""
         try:
             import concurrent.futures
             
-            # Convert PDF to images using poppler path
             images = convert_from_path(pdf_path, poppler_path=POPPLER_PATH)
             
             text = ""
@@ -131,15 +126,15 @@ class RAGSystem:
                     try:
                         text += future.result()
                     except concurrent.futures.TimeoutError:
-                        print(f"Timeout processing PDF page in {pdf_path}")
-                        text += "\n[Timeout processing page]\n"
+                        print(f"Timeout processing PDF page: {pdf_path}")
+                        text += "\n[Timeout]\n"
                     except Exception as e:
-                        print(f"Error processing PDF page in {pdf_path}: {e}")
-                        text += f"\n[Error processing page: {str(e)}]\n"
+                        print(f"Error processing PDF page: {pdf_path}, {e}")
+                        text += f"\n[Error: {str(e)}]\n"
             
             return text.strip()
         except Exception as e:
-            print(f"Error extracting text from PDF {pdf_path}: {e}")
+            print(f"Error extracting PDF text: {pdf_path}, {e}")
             return ""
          
     def _generate_document_id(self, content: str, filepath: str = "") -> str:
@@ -181,16 +176,16 @@ class RAGSystem:
     
     def add_document(self, content: str, title: str = "", original_file: str = "", metadata: Dict[str, Any] = None) -> str:
         """
-        Add a document to the RAG system.
-        
+        Add document to RAG system.
+    
         Args:
-            content: The text content of the document
-            title: An optional title for the document
-            original_file: The original file path
-            metadata: Optional metadata for the document
-            
+            content: Document text content
+            title: Optional document title
+            original_file: Original file path
+            metadata: Optional document metadata
+    
         Returns:
-            The ID of the added document
+            ID of added document
         """
         doc_id = self._generate_document_id(content, original_file)
         
@@ -244,34 +239,28 @@ class RAGSystem:
     
     def scan_rag_docs_folder(self) -> Dict[str, Any]:
         """
-        Scan the RAG_docs folder and add/update documents.
-        
+        Scan RAG_docs folder for documents.
+    
         Returns:
-            Dictionary with stats about the scan operation
+            Scan operation statistics
         """
-        print(f"Scanning directory: {RAG_DOCS_DIR}") # Added log
+        print(f"Scanning: {RAG_DOCS_DIR}")
         if not os.path.exists(RAG_DOCS_DIR):
             os.makedirs(RAG_DOCS_DIR, exist_ok=True)
-            print(f"Created or found directory: {RAG_DOCS_DIR}") # Added log
+            print(f"Created directory: {RAG_DOCS_DIR}")
             return {"added": 0, "updated": 0, "total_docs": 0, "total_in_faiss": 0}
-
-        # Log all files found initially
-        all_files_in_dir = list(Path(RAG_DOCS_DIR).glob("*"))
-        print(f"Found files/dirs in {RAG_DOCS_DIR}: {all_files_in_dir}") # Added log
-
-        # Get all files in directory with common text extensions
+    
         extensions = ['.txt', '.md', '.csv', '.json', '.html', '.xml', '.py', '.js', '.ts', '.css', '.pdf']
-        print(f"Allowed extensions: {extensions}") # Added log
+        print(f"Scanning for files with extensions: {extensions}")
         files = []
         for ext in extensions:
             files.extend(Path(RAG_DOCS_DIR).glob(f"*{ext}"))
-     
-        print(f"Files matching allowed extensions: {files}") # Added log
-
+            
+        print(f"Found files: {files}")
+    
         added_count = 0
         updated_count = 0
         
-        # Mark all documents as not in folder, we'll update this as we scan
         for doc_id, doc in self.documents.items():
             if doc.original_file.startswith(RAG_DOCS_DIR):
                 doc.in_folder = False
@@ -362,10 +351,10 @@ class RAGSystem:
     
     def get_document_list(self) -> List[Dict[str, Any]]:
         """
-        Get a list of all documents with their status.
-        
+        Get list of documents with status.
+    
         Returns:
-            List of document info dictionaries
+            List of document information
         """
         document_list = []
         for doc_id, doc in self.documents.items():
@@ -385,74 +374,55 @@ class RAGSystem:
         
     def retrieve(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
         """
-        Retrieve relevant documents for a given query.
-        
+        Retrieve documents for query.
+    
         Args:
-            query: The search query
+            query: Search query
             top_k: Number of documents to retrieve
-             
+    
         Returns:
-            List of (document, similarity_score) tuples
+            List of (document, similarity_score)
         """
         if self.index.ntotal == 0:
-            print("No documents in the index")
+            print("No documents in index")
             return []
-         
-        # Generate query embedding
+          
         query_embedding = self.embedding_model.generate_embedding(query)
-         
-        # Normalize query embedding for cosine similarity
         faiss.normalize_L2(np.array([query_embedding], dtype=np.float32))
-         
-        # Search FAISS index
         scores, indices = self.index.search(np.array([query_embedding], dtype=np.float32), min(top_k, self.index.ntotal))
-         
-        # Get documents for the indices
+          
         results = []
         for i, idx in enumerate(indices[0]):
-            if idx != -1:  # -1 means no result
+            if idx != -1:
                 score = scores[0][i]
-                if score >= SIMILARITY_THRESHOLD:  # Only include results above threshold
-                    # Find the document ID for this index
-                    doc_id = None
-                    for did, index in self.doc_id_to_index.items():
-                        if index == idx:
-                            doc_id = did
-                            break
-                     
+                if score >= SIMILARITY_THRESHOLD:
+                    doc_id = next((did for did, index in self.doc_id_to_index.items() if index == idx), None)
                     if doc_id and doc_id in self.documents:
                         results.append((self.documents[doc_id], float(score)))
-         
+          
         results.sort(key=lambda x: x[1], reverse=True)
         return results
 
     def remove_document(self, doc_id: str) -> bool:
         """
-        Remove a document from the RAG system.
-        
+        Remove document from RAG system.
+    
         Args:
-            doc_id: The ID of the document to remove
-             
+            doc_id: Document ID to remove
+    
         Returns:
-            True if successful, False otherwise
+            Removal success status
         """
         if doc_id not in self.documents:
-            print(f"Document with ID {doc_id} not found")
+            print(f"Document not found: {doc_id}")
             return False
-         
-        # Currently, FAISS doesn't support direct deletion of vectors
-        # To properly implement this, we'd need to rebuild the index without the document
-        # For now, we'll just remove it from our documents list
-        print(f"Removing document with ID: {doc_id}")
+          
+        print(f"Removing document: {doc_id}")
         del self.documents[doc_id]
-         
-        # Remove from doc_id_to_index mapping
         if doc_id in self.doc_id_to_index:
             del self.doc_id_to_index[doc_id]
-         
-        # Save the updated document list
+          
         self._save_documents()
-         
         return True
 
     def remove_all_documents(self) -> None:
@@ -470,12 +440,12 @@ class RAGSystem:
 
 def format_retrieved_context(retrieved_docs: List[Tuple[Document, float]], query: str) -> str:
     """
-    Format retrieved documents as context for the language model.
-    
+    Format retrieved documents for context.
+
     Args:
-        retrieved_docs: List of (document, similarity_score) tuples
-        query: The original query
-        
+        retrieved_docs: List of (document, similarity_score)
+        query: Original query
+
     Returns:
         Formatted context string
     """
@@ -483,13 +453,9 @@ def format_retrieved_context(retrieved_docs: List[Tuple[Document, float]], query
         return ""
     
     context_parts = ["RELEVANT INFORMATION:"]
-    
+
     for doc, score in retrieved_docs:
-        # Truncate document content if too long
-        MAX_CHARS = 1000
-        content = doc.content
-        if len(content) > MAX_CHARS:
-            content = content[:MAX_CHARS] + "..."
+        content = doc.content[:1000] + "..." if len(doc.content) > 1000 else doc.content
         
         context_parts.append(f"Title: {doc.title}")
         context_parts.append(f"Relevance: {score:.2f}")
@@ -502,7 +468,7 @@ def format_retrieved_context(retrieved_docs: List[Tuple[Document, float]], query
 _rag_system = None
 
 def get_rag_system() -> RAGSystem:
-    """Get or create the RAG system singleton."""
+    """Get RAG system singleton instance."""
     global _rag_system
     if _rag_system is None:
         _rag_system = RAGSystem()

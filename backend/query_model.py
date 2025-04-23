@@ -9,13 +9,13 @@ import requests
 import json
 import time
 
-# Global variable to hold the LLM
+# Store the LLM instance
 global llm
 
 
 def setup_llamacpp_pipeline():
     global llm
-    # Login to Hugging Face
+    # Authenticate with Hugging Face
     hf_token = os.environ.get("HF_TOKEN")
     login(token=hf_token)
     
@@ -99,26 +99,23 @@ def setup_transformers_cpu_pipeline():
     return pipe
 
 
-# New OpenRouter query function
 def setup_openrouter_client():
     """
-    Initializes the OpenRouter client configuration.
-    No actual model initialization needed since we're using the API.
+    Configure OpenRouter client.
     """
-    print("Setting up OpenRouter client")
-    # Just return a placeholder since we don't need an actual model object
+    print("Configuring OpenRouter client")
     return "openrouter_client"
 
 def get_rag_enhanced_prompt(query, prompt_template):
     """
-    Enhance the prompt with relevant context from the RAG system.
-    
+    Enhance prompt with RAG context.
+
     Args:
-        query: The user's query
-        prompt_template: The base prompt template
-        
+        query: User's query
+        prompt_template: Base prompt template
+
     Returns:
-        Enhanced prompt with retrieved context and retrieved documents
+        Enhanced prompt and retrieved documents
     """
     # Get the RAG system
     rag_system = get_rag_system()
@@ -157,9 +154,9 @@ Ensure responses are children friendly.
 
 def get_answer_from_text(text):
     global llm
-    # Ensure llm is initialized
+    # Initialize llm if needed
     if 'llm' not in globals() or llm is None:
-        main()  # Initialize llm if not already done
+        main()
     
     try:
         print(f"Input text type: {type(text)}")
@@ -362,14 +359,14 @@ image_cache = ImageCache()
 
 def get_answer_from_image_and_prompt(image_data: bytes, prompt: str) -> str:
     """
-    Get an answer from the model based on the whiteboard image and text prompt.
+    Process whiteboard image and text prompt.
     """
     try:
-        # Cache the image
+        # Cache image
         filename = 'whiteboard.png'
         image_cache.add_image(image_data, filename)
         
-        # Encode the latest cached image to base64
+        # Encode latest image to base64
         latest_image = image_cache.get_latest_image()
         if latest_image is None:
             return "Error: No image available"
@@ -431,9 +428,9 @@ def get_answer_from_image_and_prompt(image_data: bytes, prompt: str) -> str:
         return f"Error processing image and prompt: {str(e)}"
 
 def main():
-    # Set the OpenRouter API key in environment variables
+    # Configure OpenRouter API key
     os.environ["OPENROUTER_API_KEY"] = "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"
-    print("Initializing OpenRouter client...")
+    print("Configuring OpenRouter client...")
     global llm
     llm = setup_openrouter_client()
     

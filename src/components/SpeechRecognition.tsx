@@ -8,21 +8,20 @@ interface SpeechRecognitionProps {
   onTranscriptUpdate?: (transcript: string) => void;
 }
 
-// Define the expected response format from the backend
 interface AIResponse {
   question: string;
   answer: {
-    explanation: string; // Text for TTS
-    scene: DrawingInstruction[]; // Drawing instructions
-    final_answer?: { // New field for answer validation
+    explanation: string;
+    scene: DrawingInstruction[];
+    final_answer?: {
       correct_value: string | number;
       explanation: string;
       feedback_correct: string;
       feedback_incorrect: string;
     };
   };
-  audio: string; // URL to audio file
-  source_documents?: string[]; // Optional source documents reference
+  audio: string;
+  source_documents?: string[];
 }
 
 const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdate }) => {
@@ -36,44 +35,29 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const audioEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Use autoMicRef to access current autoMic state in event listeners
   const autoMicRef = useRef<boolean>(autoMic);
   
-  // Update the ref whenever autoMic state changes
   useEffect(() => {
-    console.log(`Updating autoMicRef from ${autoMicRef.current} to ${autoMic}`);
     autoMicRef.current = autoMic;
-    
-    // When autoMic is toggled off, clear any pending auto-start timeouts
     if (!autoMic && audioEndTimeoutRef.current) {
-      console.log("Auto-mic disabled - clearing pending auto-start timeouts");
       clearTimeout(audioEndTimeoutRef.current);
       audioEndTimeoutRef.current = null;
     }
   }, [autoMic]);
   
-  // Access TTS context for displaying subtitles and drawings
-  const { 
-    setCurrentTTS, 
-    setIsPlaying, 
-    setAudioDuration, 
-    setDrawings, 
-    activateDrawing, 
-    resetActiveDrawings 
+  const {
+    setCurrentTTS,
+    setIsPlaying,
+    setAudioDuration,
+    setDrawings,
+    activateDrawing,
+    resetActiveDrawings
   } = useTTS();
-
-  // Handle audio playback ending - use function that accesses current ref value instead of closure
+  
   const handleAudioEnded = () => {
-    console.log("Audio playback ended, accessing current autoMicRef.current:", autoMicRef.current);
     setIsPlaying(false);
-    
-    // Use the ref to access the current value, not the closure
     if (autoMicRef.current) {
-      console.log("Auto-mic is enabled via ref, automatically starting recording");
       startRecordingInternal();
-    } else {
-      console.log("Auto-mic is disabled via ref, NOT automatically starting recording");
-      // Do nothing when autoMic is disabled - user must manually start recording
     }
   };
 
@@ -135,35 +119,22 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
   const playGreeting = async () => {
     setIsProcessing(true);
     try {
-      // Add a cache-busting parameter to avoid browser caching
       const timestamp = new Date().getTime();
       const response = await axios.get(`http://localhost:8000/greeting?t=${timestamp}`);
       
       if (response.data?.greeting && response.data?.audio) {
-        // Estimate the duration for initial subtitle timing
         const estimatedDuration = estimateSpeechDuration(response.data.greeting);
-        console.log(`Estimated greeting duration: ${estimatedDuration}ms`);
-        
-        // Set the greeting text and estimated duration for subtitle display
         setCurrentTTS(response.data.greeting);
         setAudioDuration(estimatedDuration);
-        
-        // Reset any active drawings
         resetActiveDrawings();
         setDrawings([]);
         
-        // Play the greeting audio
         if (audioPlayerRef.current) {
-          // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
-          
-          // Wait for the audio to load before playing
           audioPlayerRef.current.onloadedmetadata = () => {
-            // Now we know the actual duration, update it
             if (audioPlayerRef.current) {
               const actualDuration = audioPlayerRef.current.duration * 1000;
               setAudioDuration(actualDuration);
-              console.log(`Actual greeting audio duration: ${actualDuration}ms`);
             }
             
             audioPlayerRef.current?.play().catch(err => {
@@ -172,30 +143,21 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               setIsPlaying(false);
             });
             
-            // Clear any existing timeout
             if (audioEndTimeoutRef.current) {
               clearTimeout(audioEndTimeoutRef.current);
               audioEndTimeoutRef.current = null;
             }
             
-            // Set a new timeout based on estimated duration ONLY if autoMic is enabled (use ref)
-            // This is a fallback in case the 'ended' event doesn't fire
             if (autoMicRef.current) {
               audioEndTimeoutRef.current = setTimeout(() => {
-                console.log("Estimated greeting playback completed, checking autoMicRef:", autoMicRef.current);
                 setIsPlaying(false);
-                
-                if (autoMicRef.current) { // Check ref, not state
-                  console.log("Auto-mic is enabled (ref), starting recording");
+                if (autoMicRef.current) {
                   startRecordingInternal();
-                } else {
-                  console.log("Auto-mic is disabled (ref), NOT starting recording");
                 }
-              }, estimatedDuration + 500); // Add a small buffer
+              }, estimatedDuration + 500);
             }
           };
           
-          // Add the greeting to the transcript if callback provided
           if (onTranscriptUpdate) {
             onTranscriptUpdate("PEARL: " + response.data.greeting);
           }
@@ -214,7 +176,6 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   };
 
-  // Separate internal start recording function (without playing greeting)
   const startRecordingInternal = async () => {
     setError(null);
     try {
@@ -231,16 +192,13 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
           chunksRef.current.push(event.data);
         }
       };
-      
+  
       mediaRecorderRef.current.onstop = async () => {
         if (chunksRef.current.length === 0) return;
         
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        
-        // Send to backend for processing
         await processAudio(audioBlob);
         
-        // Clean up stream
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(track => track.stop());
           streamRef.current = null;
@@ -257,12 +215,9 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
   };
 
   const startRecording = async () => {
-    // If this is the first recording, play greeting first
     if (!document.getElementById('transcript-container')?.textContent?.includes('PEARL:')) {
       await playGreeting();
-      // The recording will be started by the timeout or ended event in playGreeting
     } else {
-      // For subsequent recordings, start recording directly
       await startRecordingInternal();
     }
   };
@@ -280,191 +235,101 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
     }
   };
 
-  // Extract clean explanation text from a response string that might contain JSON
-  const extractExplanationText = (text: string): string => {
-    try {
-      // Check if the text is or contains JSON
-      if (text.includes('{"explanation":')) {
-        // Find the start and end of the JSON object
-        const jsonStart = text.indexOf('{');
-        const jsonEnd = text.lastIndexOf('}') + 1;
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-          const jsonStr = text.substring(jsonStart, jsonEnd);
-          const parsed = JSON.parse(jsonStr);
-          return parsed.explanation || text;
-        }
-      }
-      return text;
-    } catch (e) {
-      console.error("Error extracting explanation:", e);
-      return text;
-    }
-  };
-
-
   const processAudio = async (audioBlob: Blob) => {
     try {
       setIsProcessing(true);
-      
-      // Create form data with the audio blob
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.webm');
       
-      // Send to backend with timestamp to avoid caching
       const timestamp = new Date().getTime();
-      console.log("Sending audio to backend...");
       const response = await axios.post<AIResponse>(`http://localhost:8000/tutor/speak?t=${timestamp}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
-      console.log("Full backend response:", JSON.stringify(response.data, null, 2));
       
-      // Handle the response
       if (response.data?.question) {
-        // Check if the response is in the new format with explanation, scene, and final_answer
         const answerData = response.data.answer;
-        
-        // Reset active drawings
         resetActiveDrawings();
         
-        // Process the response data
         let explanation = '';
-        
-        // Determine if explanation is a string or JSON
         if (typeof answerData.explanation === 'string') {
-          // Check if the explanation is a JSON string
           if (answerData.explanation.trim().startsWith('{') && answerData.explanation.trim().endsWith('}')) {
             try {
               const parsedExplanation = JSON.parse(answerData.explanation);
               explanation = parsedExplanation.explanation || answerData.explanation;
-            } catch (e) {
+            } catch (error) {
+              console.error("Error parsing explanation:", error);
               explanation = answerData.explanation;
             }
           } else {
             explanation = answerData.explanation;
           }
-        } else {
-          explanation = "I'm sorry, I couldn't generate a proper explanation.";
         }
         
-        // Process drawings - add IDs if they don't have them
         let drawings = answerData.scene || [];
-        
-        // DEBUG - let's log the raw drawings first
-        console.log("Raw drawings from response:", JSON.stringify(drawings));
-        
-        // Add IDs to drawings if they don't have them
         drawings = drawings.map((drawing, index) => {
           if (!drawing.id) {
-            console.log(`Adding ID to drawing at index ${index}: ${drawing.type}`);
             return { ...drawing, id: `auto-id-${index}` };
           }
           return drawing;
         });
-        
-        console.log("Processed drawings with IDs:", JSON.stringify(drawings));
-        
+  
         const finalAnswer = answerData.final_answer;
         
-        console.log("Processing response:", {
-          explanation,
-          drawings: drawings.length,
-          finalAnswer
-        });
-        
-        // Store final answer in local storage for validation
         if (finalAnswer) {
           localStorage.setItem('currentProblemAnswer', JSON.stringify(finalAnswer));
-          console.log("Stored final answer for validation:", finalAnswer);
         } else {
-          // Clear any existing stored answer
           localStorage.removeItem('currentProblemAnswer');
         }
         
-        // Store and activate drawings immediately
-        console.log("Setting drawings:", drawings);
         setDrawings(drawings);
-        console.log(`Loaded ${drawings.length} drawings from scene`);
-        
-        // Activate all drawings immediately
-        drawings.forEach((drawing, index) => {
+        drawings.forEach((drawing) => {
           if (drawing.id) {
-            console.log(`Activating drawing with ID: ${drawing.id}`);
             activateDrawing(drawing.id);
-          } else {
-            console.error(`ERROR: Drawing at index ${index} still has no ID after processing`, drawing);
           }
         });
         
-        // Calculate estimated duration of response speech
         const estimatedDuration = estimateSpeechDuration(explanation);
-        console.log(`Estimated response duration: ${estimatedDuration}ms`);
+        const cleanExplanation = explanation.replace(/\[DRAW:[^\]]+\]/g, '');
         
-        // Extract drawing markers and prepare timings
-        const regex = /\[DRAW:([^\]]+)\]/g;
-        let match;
-        const markers: { id: string, position: number }[] = [];
-        
-        // Find all drawing markers
-        while ((match = regex.exec(explanation)) !== null) {
-          markers.push({
-            id: match[1],
-            position: match.index
-          });
-        }
-        
-        // Clean explanation by removing drawing markers for TTS and transcript
-        const cleanExplanation = explanation.replace(regex, '');
-        console.log(`Found ${markers.length} drawing markers in explanation`);
-        
-        // Set the response text for subtitle display
         setCurrentTTS(cleanExplanation);
         setAudioDuration(estimatedDuration);
         
-        // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
-          
-          // Only include the explanation part in the transcript, not the full JSON
           let transcriptText = "PEARL: " + cleanExplanation;
-          
-          // Add a note if there's a problem to solve
           if (finalAnswer && finalAnswer.correct_value) {
             transcriptText += `\n(The system is expecting an answer: ${finalAnswer.correct_value})`;
           }
-          
           if (response.data.source_documents && response.data.source_documents.length > 0) {
             transcriptText += `\n\nReference: ${response.data.source_documents.join(', ')}`;
           }
           onTranscriptUpdate(transcriptText);
         }
         
-        // Play the response audio if available
         if (audioPlayerRef.current && response.data.audio) {
-          // The URL already has a timestamp from the backend
           audioPlayerRef.current.src = response.data.audio;
-          
-          // Wait for the audio to load before playing
           audioPlayerRef.current.onloadedmetadata = () => {
-            // Update with actual duration once audio is loaded
             if (audioPlayerRef.current) {
               const actualDuration = audioPlayerRef.current.duration * 1000;
               setAudioDuration(actualDuration);
-              console.log(`Actual response audio duration: ${actualDuration}ms`);
               
-              // Set up drawing activation timers based on marker positions
+              const regex = /\[DRAW:([^\]]+)\]/g;
+              let match;
+              const markers: { id: string, position: number }[] = [];
+              while ((match = regex.exec(explanation)) !== null) {
+                markers.push({
+                  id: match[1],
+                  position: match.index
+                });
+              }
+              
               if (markers.length > 0 && drawings.length > 0) {
-                // Calculate timing for each marker based on its position in the text
                 markers.forEach(marker => {
-                  // Calculate what percentage through the text this marker appears
                   const textPercentage = marker.position / cleanExplanation.length;
-                  // Convert to time based on audio duration
                   const drawingTime = Math.floor(textPercentage * actualDuration);
-                  
-                  // Set timeout to activate the drawing at the appropriate time
                   setTimeout(() => {
-                    console.log(`Activating drawing ${marker.id} at ${drawingTime}ms`);
                     activateDrawing(marker.id);
                   }, drawingTime);
                 });
@@ -476,17 +341,13 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
               setError('Failed to play audio response.');
               setIsPlaying(false);
             });
-            
-            // Rest of the function remains the same...
           };
         }
       } else {
-        // If response format is invalid but request succeeded
-        console.error('Invalid response format received:', response.data);
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      // Error handling remains the same...
+      console.error("Error processing audio:", error);
     } finally {
       setIsProcessing(false);
     }

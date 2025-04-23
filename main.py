@@ -7,32 +7,32 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 import json
 
-# Import our backend modules
+# Import backend modules
 from backend.query_model import get_answer_from_text
 from backend.speech import transcribe_audio, generate_tts_audio, TEMP_AUDIO_PATH, TTS_OUTPUT_DIR
 from backend.rag_system import get_rag_system, Document, RAG_DOCS_DIR
 
 app = FastAPI()
+
+# Configure CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # Replace with specific origins in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount the TTS output directory to serve audio files
+# Configure directories for static files
 os.makedirs(TTS_OUTPUT_DIR, exist_ok=True)
 app.mount("/tts_output", StaticFiles(directory=TTS_OUTPUT_DIR), name="tts_output")
 
-# Create a directory for whiteboard images
 WHITEBOARD_DIR = "whiteboard_images"
 os.makedirs(WHITEBOARD_DIR, exist_ok=True)
 
-# Ensure RAG_docs directory exists
 os.makedirs(RAG_DOCS_DIR, exist_ok=True)
 
-# Models for request/response
+# Define request/response models
 class TTSRequest(BaseModel):
     text: str
 
@@ -59,7 +59,7 @@ class RemoveDocumentRequest(BaseModel):
 class TextOnlyRequest(BaseModel):
     text: str
 
-# Store conversation history
+# Initialize conversation history
 conversation_history = []
 
 
@@ -537,9 +537,9 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Warning: Could not remove temp file at startup: {e}")
     
-    # Set the OpenRouter API key
+    # Configure OpenRouter API key
     os.environ["OPENROUTER_API_KEY"] = "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"
-    print("OpenRouter API key set")
+    print("OpenRouter API key configured")
     
     # Scan RAG_docs folder on startup
     try:

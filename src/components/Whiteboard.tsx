@@ -409,7 +409,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
 
   const saveCanvas = () => {
     if (stageRef.current) {
-      const dataURL = stageRef.current.toDataURL();
+      const dataURL = stageRef.current.toDataURL({
+        mimeType: "image/png",
+        quality: 1,
+        pixelRatio: 1,
+        backgroundColor: "#FFFFFF", // Ensure white background when exporting
+      })
       const link = document.createElement('a');
       link.download = `whiteboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
       link.href = dataURL;
@@ -813,6 +818,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
           ref={stageRef}
         >
           <Layer>
+            <Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="#FFFFFF" />
             {lines.map((line, i) => (
               <Line
                 key={`line-${line.id || i}`}

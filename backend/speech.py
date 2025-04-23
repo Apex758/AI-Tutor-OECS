@@ -3,38 +3,45 @@ import whisper
 import os
 import sys
 import shutil
-import re # Import the regex module
+import re
+import json
 
-# Fixed filename for TTS output to avoid accumulating files
 TTS_OUTPUT_FILENAME = "current_response.wav"
 TTS_OUTPUT_DIR = "tts_output"
 TTS_OUTPUT_PATH = os.path.join(TTS_OUTPUT_DIR, TTS_OUTPUT_FILENAME)
 
-# Coqui TTS (CPU)
+# Initialize Coqui TTS model
 tts_model = TTS(model_name="tts_models/en/ljspeech/glow-tts", progress_bar=False, gpu=False)
 
-# Modified generate_tts_audio function in backend/speech.py
 def generate_tts_audio(text: str) -> str:
     os.makedirs(TTS_OUTPUT_DIR, exist_ok=True)
     
-    # Remove old file if it exists
+    # Remove existing audio file
     if os.path.exists(TTS_OUTPUT_PATH):
         try:
             os.remove(TTS_OUTPUT_PATH)
         except Exception as e:
             print(f"Warning: Could not remove old audio file: {e}")
     
-    # First check if text contains JSON structure
     cleaned_text = text
     try:
-        # Check for JSON string with explanation field
         if text.startswith('{') and text.endswith('}') and '"explanation"' in text:
             json_data = json.loads(text)
             if 'explanation' in json_data and isinstance(json_data['explanation'], str):
                 cleaned_text = json_data['explanation']
-                print(f"Extracted explanation from JSON for TTS: {cleaned_text[:100]}...")
+                print(f"Extracted explanation for TTS: {cleaned_text[:100]}...")
+            
+            if 'scene' in json_data and isinstance(json_data['scene'], list):
+                scene_description = " The scene includes: " + ', '.join([f"{item.get('type', 'unknown')} at position ({item.get('x', 'unknown')}, {item.get('y', 'unknown')})" for item in json_data['scene']])
+                cleaned_text += scene_description
+                print(f"Added scene description for TTS: {scene_description[:100]}...")
+            
+            if 'final_answer' in json_data and isinstance(json_data['final_answer'], dict):
+                final_answer = json_data['final_answer']
+                final_answer_text = f" The correct answer is {final_answer.get('correct_value', 'unknown')}. {final_answer.get('explanation', '')}"
+                cleaned_text += final_answer_text
+                print(f"Added final answer for TTS: {final_answer_text[:100]}...")
         
-        # Check for code blocks with JSON
         elif '```json' in text:
             json_start = text.find('```json') + 7
             json_end = text.rfind('```')
@@ -45,29 +52,16 @@ def generate_tts_audio(text: str) -> str:
                     cleaned_text = json_data['explanation']
                     print(f"Extracted explanation from JSON block for TTS: {cleaned_text[:100]}...")
     except Exception as e:
-        print(f"Error parsing JSON in TTS processing: {e}")
-        # Fall back to using the original text if JSON parsing fails
+        print(f"Error parsing JSON for TTS: {e}")
     
-    # Then remove any remaining JSON formatting and backslashes
     cleaned_text = cleaned_text.replace('\\', '').replace('```json', '').replace('```', '').strip()
-    
-    # Then remove [DRAW:...] tags
     cleaned_text = re.sub(r'\[DRAW:.*?\]', '', cleaned_text).strip()
-    
-    # Replace common symbols with words for TTS
-    cleaned_text = cleaned_text.replace('+', ' plus ')
-    cleaned_text = cleaned_text.replace('=', ' equals ')
-    # Add more replacements if needed (e.g., '-', '*', '/')
-    
-    # Collapse multiple spaces into one
+    cleaned_text = cleaned_text.replace('+', ' plus ').replace('=', ' equals ')
     cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
-    
-    # Remove any remaining special characters that might cause issues
     cleaned_text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', cleaned_text).strip()
     
-    print(f"Final cleaned text for TTS: {cleaned_text}") # Optional: for debugging
+    print(f"Cleaned text for TTS: {cleaned_text}")
     
-    # Generate new audio using final cleaned text
     try:
         tts_model.tts_to_file(text=cleaned_text, file_path=TTS_OUTPUT_PATH)
     except UnicodeEncodeError:
@@ -76,29 +70,26 @@ def generate_tts_audio(text: str) -> str:
     
     return TTS_OUTPUT_FILENAME
 
-# Whisper STT (CPU)
+# Load Whisper STT model
 stt_model = whisper.load_model("base")
 
-# Fixed filename for temporary audio uploads
 TEMP_AUDIO_PATH = "temp_audio.wav"
 
 def transcribe_audio(file_path: str) -> str:
-    # Copy the file to a standardized location to avoid accumulating temp files
+    # Standardize audio file location
     if file_path != TEMP_AUDIO_PATH:
         shutil.copy(file_path, TEMP_AUDIO_PATH)
     
     result = stt_model.transcribe(TEMP_AUDIO_PATH)
-    
     transcription_text = result.get("text", "")
     
-    # Clean up if not using the standard temp path
+    # Clean up temporary file
     if file_path != TEMP_AUDIO_PATH and os.path.exists(file_path):
         try:
             os.remove(file_path)
         except Exception as e:
             print(f"Warning: Could not remove temp audio file: {e}")
     
-    # Print transcription text with proper encoding handling
     try:
         print(f"Transcription result: {transcription_text}")
     except UnicodeEncodeError:

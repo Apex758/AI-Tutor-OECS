@@ -1,11 +1,10 @@
-// src/App.tsx
 import React, { useState } from "react";
 import Whiteboard from "./components/Whiteboard";
 import SpeechRecognition from "./components/SpeechRecognition";
 import CameraFeed from "./components/CameraFeed";
 import TranscriptViewer from "./components/TranscriptViewer";
 import DocumentManager from "./components/DocumentManager";
-import { ArrowLeftCircle, ArrowRightCircle, Mic, Book, Brain } from "lucide-react";
+import { ArrowLeftCircle, ArrowRightCircle, Mic, Brain } from "lucide-react";
 import { TTSProvider } from "./context/TTSContext";
 
 const App: React.FC = () => {
@@ -14,66 +13,47 @@ const App: React.FC = () => {
   const [currentPrompt, setCurrentPrompt] = useState<string>("");
   const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
-  // Toggle sidebar visibility
+  // Toggle sidebar
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => !prev);
   };
 
-  // Function to update transcript that can be passed to SpeechRecognition
   const updateTranscript = (newText: string) => {
     setTranscript(prev => {
-      // Add a newline if there's already content
       return prev ? `${prev}\n${newText}` : newText;
     });
     
-    // Check if this is a student answer to a problem
     if (newText.startsWith("You:") && localStorage.getItem('currentProblemAnswer')) {
       setIsProcessingAnswer(true);
-      // Reset processing flag after a short delay
       setTimeout(() => setIsProcessingAnswer(false), 2000);
     }
   };
 
-  // Handle sending chat messages
   const handleSendMessage = (message: string) => {
-    // Add the user's message to the transcript
     const userMessage = `You: ${message}`;
     updateTranscript(userMessage);
-    
-    // Update the current prompt for the whiteboard component
     setCurrentPrompt(message);
     
-    // Check if this is a potential answer to a problem
     const savedProblem = localStorage.getItem('currentProblemAnswer');
     if (savedProblem && !isProcessingAnswer) {
       try {
-        // Parse the saved problem
         const problem = JSON.parse(savedProblem);
-        
-        // Clean and normalize the student answer
         const studentAnswer = message.trim().toLowerCase();
         const correctAnswer = String(problem.correct_value).trim().toLowerCase();
-        
-        // Check if the answer is correct
         const isCorrect = studentAnswer === correctAnswer;
         
-        // Add appropriate feedback to the transcript
         setTimeout(() => {
-          const feedback = isCorrect 
+          const feedback = isCorrect
             ? problem.feedback_correct
             : `${problem.feedback_incorrect} ${isCorrect ? '' : problem.explanation}`;
-          
           updateTranscript(`PEARL: ${feedback}`);
         }, 500);
-        
-        return; // Skip the regular response flow
+        return;
       } catch (e) {
         console.error('Error processing saved problem:', e);
       }
     }
     
-    // Here you would typically add logic to get a response from your backend/AI
-    // For now, let's simulate a response after a short delay
     setTimeout(() => {
       const pearlResponse = `PEARL: I see you're asking about "${message}". Let me analyze your drawing.`;
       updateTranscript(pearlResponse);
@@ -95,13 +75,11 @@ const App: React.FC = () => {
         </header>
         
         <div className="flex-grow flex relative overflow-hidden">
-          {/* Whiteboard area with currentPrompt prop */}
           <div className={`${sidebarCollapsed ? 'w-full' : 'w-3/4'} h-full transition-all duration-300 ease-in-out`}>
             <Whiteboard initialPrompt={currentPrompt} />
           </div>
 
-          {/* Sidebar toggle button */}
-          <button 
+          <button
             onClick={toggleSidebar}
             className="absolute top-1/2 right-0 transform -translate-y-1/2 z-10 bg-white rounded-l-full p-1 shadow-md text-gray-600 hover:text-gray-900"
           >
@@ -112,20 +90,17 @@ const App: React.FC = () => {
             )}
           </button>
 
-          {/* Sidebar */}
-          <div 
+          <div
             className={`h-full overflow-hidden flex flex-col border-l border-gray-300 bg-white transition-all duration-300 ease-in-out ${
               sidebarCollapsed ? 'w-0 opacity-0' : 'w-1/4 opacity-100'
             }`}
           >
             {!sidebarCollapsed && (
               <>
-                {/* Camera feed */}
                 <div className="h-2/5 p-4 border-b border-gray-200">
                   <CameraFeed />
                 </div>
                 
-                {/* Speech recognition controls */}
                 <div className="h-[50px] bg-white border-b border-gray-200 p-2 flex items-center">
                   <div className="mr-2 flex items-center">
                     <Mic className="w-4 h-4 text-gray-500 mr-1" />
@@ -134,10 +109,9 @@ const App: React.FC = () => {
                   <SpeechRecognition onTranscriptUpdate={updateTranscript} />
                 </div>
                 
-                {/* Transcript area with message sending capability */}
                 <div className="flex-grow p-4 overflow-hidden">
-                  <TranscriptViewer 
-                    transcript={transcript} 
+                  <TranscriptViewer
+                    transcript={transcript}
                     onSendMessage={handleSendMessage}
                   />
                 </div>
@@ -146,7 +120,6 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        {/* Document Manager Component */}
         <DocumentManager />
       </div>
     </TTSProvider>

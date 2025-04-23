@@ -14,48 +14,39 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript, onSendM
   const [feedbackMessages, setFeedbackMessages] = useState<string[]>([]);
   const [processedLines, setProcessedLines] = useState<string[]>([]);
 
-  // Process the transcript to handle JSON responses
   useEffect(() => {
     const lines = transcript.trim() ? transcript.split('\n') : [];
     const processed = lines.map(line => {
-      // Check for code blocks with JSON
       if (line.includes('```json')) {
         try {
-          // Extract the JSON part between code blocks
           const jsonStart = line.indexOf('```json') + 7;
           const jsonEnd = line.lastIndexOf('```');
           
           if (jsonStart > 0 && jsonEnd > jsonStart) {
             const jsonStr = line.substring(jsonStart, jsonEnd).trim();
             const parsed = JSON.parse(jsonStr);
-            
-            // Only use the explanation part for the transcript
             if (parsed.explanation) {
               return `PEARL: ${parsed.explanation}`;
             }
           }
-        } catch (e) {
-          console.error("Error parsing JSON in transcript:", e);
+        } catch (error) {
+          console.error("Error parsing JSON in transcript:", error);
         }
       }
       
-      // Also check for direct JSON without code blocks
       if (line.startsWith('PEARL: {') && line.includes('"explanation":')) {
         try {
-          // Extract the JSON part
           const jsonStart = line.indexOf('{');
           const jsonEnd = line.lastIndexOf('}') + 1;
-          if (jsonStart > 0 && jsonEnd > jsonStart) {
+          if (jsonStart >= 0 && jsonEnd > jsonStart) {
             const jsonStr = line.substring(jsonStart, jsonEnd);
             const parsed = JSON.parse(jsonStr);
-            
-            // Only use the explanation part for the transcript
             if (parsed.explanation) {
               return `PEARL: ${parsed.explanation}`;
             }
           }
-        } catch (e) {
-          console.error("Error parsing JSON in transcript:", e);
+        } catch (error) {
+          console.error("Error parsing JSON in transcript:", error);
         }
       }
       
@@ -66,7 +57,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript, onSendM
   }, [transcript]);
 
   useEffect(() => {
-    // Scroll to the bottom of the transcript whenever it updates
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [processedLines, feedbackMessages]);
 
@@ -100,15 +90,13 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript, onSendM
     }
   };
 
-  // Handle feedback from the AnswerValidator
   const handleFeedback = (feedback: string, isCorrect: boolean) => {
     const feedbackPrefix = isCorrect ? "[CORRECT] " : "[INCORRECT] ";
     setFeedbackMessages(prev => [...prev, `${feedbackPrefix}${feedback}`]);
   };
 
-  // Check if there is a problem to solve - look for specific JSON patterns
-  const hasProblemToSolve = 
-    transcript.includes('(The system is expecting an answer') || 
+  const hasProblemToSolve =
+    transcript.includes('(The system is expecting an answer') ||
     transcript.includes('"correct_value"') ||
     transcript.includes('"final_answer"');
 
@@ -127,7 +115,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript, onSendM
           ))
         )}
 
-        {/* Display feedback messages */}
         {feedbackMessages.map((msg, index) => (
           <div key={`feedback-${index}`} className="mb-2 text-purple-800 self-start max-w-3/4 bg-purple-50 p-2 rounded-lg">
             {msg}
@@ -137,12 +124,10 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({ transcript, onSendM
         <div ref={transcriptEndRef} /> {/* Element to scroll to */}
       </div>
       
-      {/* Add answer validator if there's a problem to solve */}
       {hasProblemToSolve && (
         <AnswerValidator onFeedback={handleFeedback} />
       )}
       
-      {/* Chat input */}
       <div className="flex items-center bg-white rounded-lg border border-gray-300 overflow-hidden mt-2">
         <textarea
           value={message}
