@@ -8,7 +8,6 @@ from backend.rag_system import get_rag_system, format_retrieved_context
 import requests
 import json
 import time
-# from backend.drawing_generator import DrawingGenerator # No longer needed for generation
 
 # Global variable to hold the LLM
 global llm
@@ -119,7 +118,7 @@ def get_rag_enhanced_prompt(query, prompt_template):
         prompt_template: The base prompt template
         
     Returns:
-        Enhanced prompt with retrieved context
+        Enhanced prompt with retrieved context and retrieved documents
     """
     # Get the RAG system
     rag_system = get_rag_system()
@@ -134,16 +133,18 @@ def get_rag_enhanced_prompt(query, prompt_template):
     if context:
         # For OpenRouter, we're just returning the context and query
         # as we'll format it differently in the API call
-        return {
+        enhanced_prompt = {
             "context": context,
             "query": query
         }
+    else:
+        # If no context, just return the query itself
+        enhanced_prompt = {
+            "context": "",
+            "query": query
+        }
         
-    # If no context, just return the query itself
-    return {
-        "context": "",
-        "query": query
-    }
+    return enhanced_prompt, retrieved_docs
 
 # Base prompt template (we'll use this differently with OpenRouter)
 prompt_template = """<|begin_of_text|><|system|>
@@ -164,7 +165,7 @@ def get_answer_from_text(text):
         print(f"Input text type: {type(text)}")
         
         # Get enhanced prompt with RAG context if available
-        enhanced_prompt = get_rag_enhanced_prompt(str(text), prompt_template)
+        enhanced_prompt, retrieved_docs = get_rag_enhanced_prompt(str(text), prompt_template)
         
         # Define the system message with the NEW JSON schema instructions
         system_message = """
@@ -245,47 +246,66 @@ def get_answer_from_text(text):
         
         if response.status_code == 200 and "choices" in response_data and len(response_data["choices"]) > 0:
             llm_response_content = response_data["choices"][0]["message"]["content"]
-            
-            # Attempt to parse the LLM response as JSON
-            try:
-                parsed_json = json.loads(llm_response_content)
+
+            # Check if the response contains a question
+            if '?' in llm_response_content:
+                # Determine if the response is a question or contains a question
+                sentences = llm_response_content.split('. ')
+                explanation = '. '.join([s for s in sentences if '?' not in s])
+                question = '. '.join([s for s in sentences if '?' in s])
+                answer = "User's answer."  
                 
-                # Validate the structure
-                if isinstance(parsed_json, dict) and \
-                   "explanation" in parsed_json and isinstance(parsed_json["explanation"], str) and \
-                   "scene" in parsed_json and isinstance(parsed_json["scene"], list):
-                    
-                    explanation_text = parsed_json["explanation"]
-                    scene_data = parsed_json["scene"]
-                    
-                    # Construct the result in the new format
-                    result = {
-                        "question": text, # Original user query
-                        "answer": {
-                            "explanation": explanation_text, # Text for TTS
-                            "scene": scene_data # Scene description for frontend
-                        }
-                        # Audio path will be added in main.py after TTS generation
-                    }
-                    print(f"Successfully parsed LLM response. Explanation: '{explanation_text[:50]}...', Scene items: {len(scene_data)}")
-                    return result
-                else:
-                    print("Error: LLM response is valid JSON but does not match the expected schema.")
-                    print(f"Received JSON: {llm_response_content}")
-                    return f"I'm sorry, I received an unexpected response format from the AI model."
-                    
-            except json.JSONDecodeError:
-                print("Error: LLM response was not valid JSON.")
-                print(f"Received content: {llm_response_content}")
-                # Fallback: return the raw content as explanation, assuming no scene
                 result = {
-                    "question": text,
-                    "answer": {
-                        "explanation": llm_response_content, # Use raw response as explanation
-                        "scene": [] # Empty scene
-                    }
+                    "explanation": explanation,
+                    "question": question,
+                    "answer": answer
                 }
+            else:
+                explanation = llm_response_content
+                result = {
+                    "explanation": explanation
+                }
+                
+       # Attempt to parse the LLM response as JSON
+        try:
+            parsed_json = json.loads(llm_response_content)
+                
+            # Validate the structure
+            if isinstance(parsed_json, dict) and \
+                "explanation" in parsed_json and isinstance(parsed_json["explanation"], str) and \
+                "scene" in parsed_json and isinstance(parsed_json["scene"], list):
+                
+                explanation_text = parsed_json["explanation"]
+                scene_data = parsed_json["scene"]
+                
+                # Construct the result in the new format
+                result = {
+                    "question": text, # Original user query
+                    "answer": {
+                        "explanation": explanation_text, # Text for TTS
+                        "scene": scene_data # Scene description for frontend
+                    },
+                    "source_documents": retrieved_docs # Include source documents in the response
+                }
+                print(f"Successfully parsed LLM response. Explanation: '{explanation_text[:50]}...', Scene items: {len(scene_data)}")
                 return result
+            else:
+                print("Error: LLM response is valid JSON but does not match the expected schema.")
+                print(f"Received JSON: {llm_response_content}")
+                return f"I'm sorry, I received an unexpected response format from the AI model."
+                
+        except json.JSONDecodeError:
+            print("Error: LLM response was not valid JSON.")
+            print(f"Received content: {llm_response_content}")
+            # Fallback: return the raw content as explanation, assuming no scene
+            result = {
+                "question": text,
+                "answer": {
+                    "explanation": llm_response_content, # Use raw response as explanation
+                    "scene": [] # Empty scene
+                }
+            }
+            return result
         else:
             error_message = response_data.get("error", {}).get("message", "Unknown API error")
             print(f"OpenRouter API error: {error_message}")
@@ -296,6 +316,80 @@ def get_answer_from_text(text):
         print(f"Text: {text} ({type(text)})")
         return f"I'm sorry, an error occurred: {str(e)}"
 
+import base64
+from backend.image_cache import ImageCache
+
+image_cache = ImageCache()
+
+def get_answer_from_image_and_prompt(image_data: bytes, prompt: str) -> str:
+    """
+    Get an answer from the model based on the whiteboard image and text prompt.
+    """
+    try:
+        # Cache the image
+        filename = 'whiteboard.png'
+        image_cache.add_image(image_data, filename)
+        
+        # Encode the latest cached image to base64
+        latest_image = image_cache.get_latest_image()
+        if latest_image is None:
+            return "Error: No image available"
+        
+        encoded_image = base64.b64encode(latest_image).decode('utf-8')
+
+        # Prepare the API call to OpenRouter
+        api_key = os.environ.get("OPENROUTER_API_KEY", "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")
+        
+        system_message = """
+        You are a helpful assistant that can understand images and text prompts.
+        Respond based on the content of the image and the user's prompt.
+        """
+
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "http://localhost:8000",
+                "X-Title": "AI Tutor App",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({
+                "model": "meta-llama/llama-4-maverick:free",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_message
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{encoded_image}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            })
+        )
+
+        response_data = response.json()
+        
+        if response.status_code == 200 and "choices" in response_data and len(response_data["choices"]) > 0:
+            return response_data["choices"][0]["message"]["content"]
+        else:
+            error_message = response_data.get("error", {}).get("message", "Unknown API error")
+            return f"Error: {error_message}"
+
+    except Exception as e:
+        print(f"Error processing image and prompt: {e}")
+        return f"Error processing image and prompt: {str(e)}"
 
 def main():
     # Set the OpenRouter API key in environment variables

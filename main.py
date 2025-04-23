@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Body
+from fastapi import FastAPI, UploadFile, File, Form, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
@@ -96,14 +96,29 @@ async def tutor_from_audio(file: UploadFile = File(...)):
                 # Check if we have an explanation field in the answer
                 if isinstance(answer, dict) and isinstance(answer.get('answer', {}), dict):
                     explanation = answer['answer'].get('explanation', '')
-                    # Use the explanation for TTS
-                    audio_file = generate_tts_audio(explanation)
+                    
+                    # Check if explanation is a JSON string
+                    try:
+                        explanation_json = json.loads(explanation)
+                        if isinstance(explanation_json, dict) and 'explanation' in explanation_json:
+                            # Use the 'explanation' field from the JSON for TTS
+                            tts_text = explanation_json['explanation']
+                        else:
+                            tts_text = explanation
+                    except json.JSONDecodeError:
+                        tts_text = explanation
+                    
+                    # Use the extracted text for TTS
+                    audio_file = generate_tts_audio(tts_text)
+                    
                     # Update the audio path in the response
                     answer['audio'] = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
                 else:
                     # Use the entire response for TTS (fallback for legacy format)
-                    audio_file = generate_tts_audio(str(answer))
+                    tts_text = str(answer)
+                    audio_file = generate_tts_audio(tts_text)
                     audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+                    
                     # If response was not structured, wrap it
                     if not isinstance(answer, dict):
                         answer = {
@@ -198,33 +213,37 @@ async def get_greeting():
         "audio": f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
     }
 
+from backend.query_model import get_answer_from_image_and_prompt
+
 @app.post("/process_whiteboard_image")
-async def process_whiteboard_image(file: UploadFile = File(...)):
+async def process_whiteboard_image(
+    request: Request
+):
     """
-    Process an uploaded whiteboard image, potentially recognizing content.
+    Process the whiteboard image sent directly in the request body along with a prompt in the header.
     """
-    # Use a fixed filename for the whiteboard image to avoid accumulation
-    image_path = f"{WHITEBOARD_DIR}/current_whiteboard.png"
-    
-    # Remove the old file if it exists
-    if os.path.exists(image_path):
-        try:
-            os.remove(image_path)
-        except Exception as e:
-            print(f"Warning: Could not remove old whiteboard image: {e}")
-    
-    # Save the new image
-    with open(image_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Here you would add image processing logic
-    # For now, just return a placeholder response
-    
-    return {
-        "message": "Whiteboard image processed successfully",
-        "detected_text": "This is a placeholder for detected text from the whiteboard image.",
-        "saved_path": image_path
-    }
+    try:
+        # Get the prompt from the header
+        prompt = request.headers.get('x-prompt', '')
+        if not prompt:
+            return {"error": "Missing X-Prompt header"}
+        
+        # Read the image data from the request body
+        image_data = await request.body()
+        
+        # Get a response based on the image and prompt
+        response = get_answer_from_image_and_prompt(image_data, prompt)
+        
+        # Generate TTS for the response
+        audio_file = generate_tts_audio(response)
+        audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+        
+        return {
+            "response": response,
+            "audio": audio_path
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # =============== New RAG System Endpoints ===============
 

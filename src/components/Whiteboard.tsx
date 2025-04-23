@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Konva from 'konva';
 import { Stage, Layer, Line, Rect, Circle, Text, Image, Ellipse } from 'react-konva';
-import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon } from 'lucide-react';
+import { Pencil, Eraser, Square, Circle as CircleIcon, Trash2, Download, Undo, Redo, Wand, Image as ImageIcon, Send } from 'lucide-react';
 import SubtitleDisplay from './SubtitleDisplay';
 import { useTTS } from '../context/TTSContext';
 
@@ -131,7 +131,12 @@ const ToolButton: React.FC<ToolButtonProps> = ({
   </button>
 );
 
-const Whiteboard: React.FC = () => {
+// Update the Whiteboard component props interface
+interface WhiteboardProps {
+  initialPrompt?: string;
+}
+
+const Whiteboard: React.FC<WhiteboardProps> = ({ initialPrompt = "" }) => {
   const [tool, setTool] = useState<'pencil' | 'eraser' | 'rectangle' | 'circle'>('pencil');
   const [lines, setLines] = useState<Line[]>([]);
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -149,6 +154,20 @@ const Whiteboard: React.FC = () => {
   // Get TTS text and playing state from context
   const { currentTTS, isPlaying, audioDuration, drawings, activeDrawingIds } = useTTS();
 
+  // Add prompt state and visibility state
+  // Initialize with initialPrompt if provided
+  const [prompt, setPrompt] = useState(initialPrompt);
+  const [showPrompt, setShowPrompt] = useState(!!initialPrompt);
+  const promptInputRef = useRef<HTMLInputElement>(null);
+
+  // Add effect to update prompt when initialPrompt changes
+  useEffect(() => {
+    if (initialPrompt) {
+      setPrompt(initialPrompt);
+      setShowPrompt(true); // Show the prompt input when we receive a new prompt
+    }
+  }, [initialPrompt]);
+
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
@@ -163,6 +182,13 @@ const Whiteboard: React.FC = () => {
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
+
+  // Effect to focus input when prompt field is shown
+  useEffect(() => {
+    if (showPrompt && promptInputRef.current) {
+      promptInputRef.current.focus();
+    }
+  }, [showPrompt]);
 
   // Effect to handle dynamic drawing creation from drawings context
   useEffect(() => {
@@ -346,52 +372,82 @@ const Whiteboard: React.FC = () => {
     }
   };
 
-  const handleWandClick = async () => {
-    console.log("Wand button clicked. Capturing canvas and sending to placeholder endpoint.");
+  // Toggle prompt input visibility
+  const togglePromptInput = () => {
+    setShowPrompt(!showPrompt);
+  };
 
+  const handleWandClick = async () => {
+    // If prompt is not visible, show it first
+    if (!showPrompt) {
+      togglePromptInput();
+      return;
+    }
+    
+    if (!prompt.trim()) {
+      console.error("Prompt is empty");
+      return;
+    }
+    
+    console.log("Wand button clicked. Capturing canvas and sending to backend.");
+   
     // Apply glow effect
     setIsGlowing(true);
     setTimeout(() => {
       setIsGlowing(false);
     }, 1000); // Glow for 1 second (matching animation duration)
 
-    // Placeholder endpoint - replace with actual backend endpoint
-    const placeholderEndpoint = 'http://localhost:8000/process_whiteboard_image'; // Placeholder endpoint - requires backend implementation
-
+    // Update the fetch call to send both image and prompt
+    const endpoint = 'http://localhost:8000/process_whiteboard_image';
+   
     if (!stageRef.current) {
       console.error("Stage is not available.");
       return;
     }
 
     try {
-      // Capture the canvas as a data URL
-      const dataURL = stageRef.current.toDataURL({
-        mimeType: 'image/png',
-        quality: 1,
-      });
-
-      // Convert data URL to Blob
-      const blob = await (await fetch(dataURL)).blob();
-
-      // Send the image data (Blob) to the endpoint
-      const response = await fetch(placeholderEndpoint, {
-        method: 'POST',
-        body: blob,
-        headers: {
-          'Content-Type': 'image/png',
-        },
-      });
+       // Capture the canvas as a data URL
+       const dataURL = stageRef.current.toDataURL({
+         mimeType: 'image/png',
+         quality: 1,
+       });
+ 
+       // Convert data URL to Blob
+       const blob = await (await fetch(dataURL)).blob();
+       
+       // Send the image data directly to the backend
+       const response = await fetch(endpoint, {
+         method: 'POST',
+         body: blob,
+         headers: {
+           'X-Prompt': prompt
+         }
+       });
 
       if (response.ok) {
-        console.log("Canvas image sent successfully to placeholder endpoint.");
-        // Handle response from backend if needed
-        const result = await response.text(); // Assuming backend might return text confirmation
-        console.log("Response from backend:", result);
+          console.log("Canvas image and prompt sent successfully to backend.");
+          const result = await response.json();
+          console.log("Response from backend:", result);
+          
+          // Hide prompt after sending
+          setShowPrompt(false);
       } else {
-        console.error("Error sending canvas image to placeholder endpoint:", response.status, response.statusText);
+          console.error("Error sending canvas image to backend:", response.status, response.statusText);
       }
+      
+      // Clear the prompt after sending
+      setPrompt('');
     } catch (error) {
       console.error("Error during canvas capture or fetch:", error);
+    }
+  };
+
+  // Handle pressing Enter in prompt input
+  const handlePromptKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleWandClick();
+    } else if (e.key === 'Escape') {
+      setShowPrompt(false);
     }
   };
 
@@ -439,8 +495,9 @@ const Whiteboard: React.FC = () => {
         onChange={handleMediaSelect}
       />
       <div className="flex flex-wrap items-center gap-2 p-2 bg-white border-b">
+        
         <div className="flex space-x-1">
-          <ToolButton 
+          <ToolButton
             onClick={() => setTool('pencil')}
             isActive={tool === 'pencil'}
             title="Pencil"
@@ -469,8 +526,8 @@ const Whiteboard: React.FC = () => {
             <CircleIcon className="w-5 h-5" />
           </ToolButton>
           <ToolButton
-            onClick={() => handleWandClick()}
-            isActive={false}
+            onClick={() => togglePromptInput()}
+            isActive={showPrompt}
             title="Magic Wand"
           >
             <Wand className="w-5 h-5" />
@@ -514,7 +571,31 @@ const Whiteboard: React.FC = () => {
           </div>
         </div>
         
-        <div className="flex-grow"></div>
+        {/* Add prompt input field */}
+        {showPrompt && (
+          <div className="flex-grow flex items-center">
+            <div className="relative flex-grow max-w-lg">
+              <input
+                ref={promptInputRef}
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10"
+                placeholder="Ask about your drawing..."
+                onKeyDown={handlePromptKeyDown}
+              />
+              <button 
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-500 hover:text-blue-700"
+                onClick={handleWandClick}
+                title="Send"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {!showPrompt && <div className="flex-grow"></div>}
         
         <div className="flex space-x-1">
           <ToolButton 

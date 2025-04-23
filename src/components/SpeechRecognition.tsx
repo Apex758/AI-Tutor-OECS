@@ -10,12 +10,13 @@ interface SpeechRecognitionProps {
 
 // Define the expected response format from the backend
 interface AIResponse {
-  question: string;
-  answer: {
-    explanation: string; // Text for TTS
-    scene: DrawingInstruction[]; // Drawing instructions
-  };
-  audio: string; // URL to audio file
+question: string;
+answer: {
+  explanation: string; // Text for TTS
+  scene: DrawingInstruction[]; // Drawing instructions
+};
+audio: string; // URL to audio file
+source_documents?: string[]; // Optional source documents reference
 }
 
 // Log the expected format for debugging
@@ -357,7 +358,11 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Update transcript with user question and AI response
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
-          onTranscriptUpdate("PEARL: " + cleanExplanation);
+          let transcriptText = "PEARL: " + cleanExplanation;
+          if (response.data.source_documents && response.data.source_documents.length > 0) {
+            transcriptText += `\n\nReference: ${response.data.source_documents.join(', ')}`;
+          }
+          onTranscriptUpdate(transcriptText);
         }
         
         // Play the response audio if available

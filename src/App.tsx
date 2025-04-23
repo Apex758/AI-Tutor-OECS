@@ -10,6 +10,7 @@ import { TTSProvider } from "./context/TTSContext";
 const App: React.FC = () => {
   const [transcript, setTranscript] = useState<string>("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [currentPrompt, setCurrentPrompt] = useState<string>("");
 
   // Toggle sidebar visibility
   const toggleSidebar = () => {
@@ -22,6 +23,23 @@ const App: React.FC = () => {
       // Add a newline if there's already content
       return prev ? `${prev}\n${newText}` : newText;
     });
+  };
+
+  // Handle sending chat messages
+  const handleSendMessage = (message: string) => {
+    // Add the user's message to the transcript
+    const userMessage = `You: ${message}`;
+    updateTranscript(userMessage);
+    
+    // Update the current prompt for the whiteboard component
+    setCurrentPrompt(message);
+    
+    // Here you would typically add logic to get a response from your backend/AI
+    // For now, let's simulate a response after a short delay
+    setTimeout(() => {
+      const pearlResponse = `PEARL: I see you're asking about "${message}". Let me analyze your drawing.`;
+      updateTranscript(pearlResponse);
+    }, 500);
   };
 
   return (
@@ -39,9 +57,9 @@ const App: React.FC = () => {
         </header>
         
         <div className="flex-grow flex relative overflow-hidden">
-          {/* Whiteboard area */}
+          {/* Whiteboard area with currentPrompt prop */}
           <div className={`${sidebarCollapsed ? 'w-full' : 'w-3/4'} h-full transition-all duration-300 ease-in-out`}>
-            <Whiteboard />
+            <Whiteboard initialPrompt={currentPrompt} />
           </div>
 
           {/* Sidebar toggle button */}
@@ -78,9 +96,12 @@ const App: React.FC = () => {
                   <SpeechRecognition onTranscriptUpdate={updateTranscript} />
                 </div>
                 
-                {/* Transcript area */}
+                {/* Transcript area with message sending capability */}
                 <div className="flex-grow p-4 overflow-hidden">
-                  <TranscriptViewer transcript={transcript} />
+                  <TranscriptViewer 
+                    transcript={transcript} 
+                    onSendMessage={handleSendMessage}
+                  />
                 </div>
               </>
             )}
