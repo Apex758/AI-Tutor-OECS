@@ -10,13 +10,19 @@ interface SpeechRecognitionProps {
 
 // Define the expected response format from the backend
 interface AIResponse {
-question: string;
-answer: {
-  explanation: string; // Text for TTS
-  scene: DrawingInstruction[]; // Drawing instructions
-};
-audio: string; // URL to audio file
-source_documents?: string[]; // Optional source documents reference
+  question: string;
+  answer: {
+    explanation: string; // Text for TTS
+    scene: DrawingInstruction[]; // Drawing instructions
+    final_answer?: { // New field for answer validation
+      correct_value: string | number;
+      explanation: string;
+      feedback_correct: string;
+      feedback_incorrect: string;
+    };
+  };
+  audio: string; // URL to audio file
+  source_documents?: string[]; // Optional source documents reference
 }
 
 // Log the expected format for debugging
@@ -24,7 +30,13 @@ console.log("Expected response format:", {
   question: "example question",
   answer: {
     explanation: "example explanation",
-    scene: [{ type: "apple", x: 100, y: 100, count: 2 }]
+    scene: [{ type: "apple", x: 100, y: 100, count: 2 }],
+    final_answer: {
+      correct_value: "5",
+      explanation: "explanation of correct answer",
+      feedback_correct: "Great job!",
+      feedback_incorrect: "Try again!"
+    }
   },
   audio: "/path/to/audio.wav"
 });
@@ -304,7 +316,7 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
       
       // Handle the response
       if (response.data?.question) {
-        // Check if the response is in the new format with explanation and drawings
+        // Check if the response is in the new format with explanation, scene, and final_answer
         const answerData = response.data.answer;
         
         // Reset active drawings
@@ -313,11 +325,22 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         // Process the response data
         const explanation = answerData.explanation;
         const drawings = answerData.scene || [];
+        const finalAnswer = answerData.final_answer;
         
         console.log("Processing response:", {
           explanation,
-          drawings
+          drawings,
+          finalAnswer
         });
+        
+        // Store final answer in local storage for validation
+        if (finalAnswer) {
+          localStorage.setItem('currentProblemAnswer', JSON.stringify(finalAnswer));
+          console.log("Stored final answer for validation:", finalAnswer);
+        } else {
+          // Clear any existing stored answer
+          localStorage.removeItem('currentProblemAnswer');
+        }
         
         // Store and activate drawings immediately
         console.log("Setting drawings:", drawings);
@@ -326,8 +349,12 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         
         // Activate all drawings immediately
         drawings.forEach(drawing => {
-          console.log(`Immediately activating drawing: ${drawing.id}`);
-          activateDrawing(drawing.id);
+          if (drawing.id) {
+            console.log(`Immediately activating drawing: ${drawing.id}`);
+            activateDrawing(drawing.id);
+          } else {
+            console.log("Drawing has no ID, cannot activate:", drawing);
+          }
         });
         
         // Calculate estimated duration of response speech
@@ -359,6 +386,12 @@ const SpeechRecognition: React.FC<SpeechRecognitionProps> = ({ onTranscriptUpdat
         if (onTranscriptUpdate) {
           onTranscriptUpdate("You: " + response.data.question);
           let transcriptText = "PEARL: " + cleanExplanation;
+          
+          // Add a note if there's a problem to solve
+          if (finalAnswer && finalAnswer.correct_value) {
+            transcriptText += `\n(The system is expecting an answer: ${finalAnswer.correct_value})`;
+          }
+          
           if (response.data.source_documents && response.data.source_documents.length > 0) {
             transcriptText += `\n\nReference: ${response.data.source_documents.join(', ')}`;
           }

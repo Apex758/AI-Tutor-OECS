@@ -170,41 +170,48 @@ def get_answer_from_text(text):
         # Define the system message with the NEW JSON schema instructions
         system_message = """
         You are a helpful tutor for primary school students. Keep responses short and engaging.
-        
+
         When your response requires a visual representation (like explaining math with objects),
-        you MUST output a JSON object containing BOTH the spoken explanation AND a scene description.
-        
+        you MUST output a JSON object containing the explanation, scene description, AND the final answer.
+
         The JSON object MUST follow this exact schema:
         {
-          "explanation": "The text to be spoken aloud by the TTS engine.",
-          "scene": [
+        "explanation": "The text to be spoken aloud by the TTS engine.",
+        "scene": [
             {
-              "type": "object_type",  // e.g., "apple", "chocolate", "pencil", "number"
-              "x": number,           // x-coordinate (integer)
-              "y": number,           // y-coordinate (integer)
-              "count": number,         // (Optional) How many of this object to draw side-by-side
-              "value": string | number // (Optional) e.g., for "number" type, the actual number like 5 or "5"
+            "type": "object_type",  // e.g., "apple", "chocolate", "pencil", "number"
+            "x": number,           // x-coordinate (integer)
+            "y": number,           // y-coordinate (integer)
+            "count": number,         // (Optional) How many of this object to draw side-by-side
+            "value": string | number // (Optional) e.g., for "number" type, the actual number like 5 or "5"
             },
             {
-              "type": "operator",
-              "x": number,
-              "y": number,
-              "symbol": "+" | "-" | "=" | "*" | "/" // The operator symbol as a string
+            "type": "operator",
+            "x": number,
+            "y": number,
+            "symbol": "+" | "-" | "=" | "*" | "/" // The operator symbol as a string
             }
             // ... more items in the scene array
-          ]
+        ],
+        "final_answer": {
+            "correct_value": string | number,  // The expected correct answer value
+            "explanation": "Explanation of why this is the correct answer",
+            "feedback_correct": "Response to give when student is correct",
+            "feedback_incorrect": "Response to give when student is incorrect"
         }
-        
+        }
+
         RULES:
         - ALWAYS respond with a valid JSON object matching the schema.
         - The `explanation` field should contain the complete text to be spoken.
         - The `scene` field should be an array describing the visual elements.
+        - The `final_answer` field MUST contain the correct answer and feedback.
         - Allowed `type` values for objects currently include: "apple", "chocolate", "pencil", "number". More may be added later. Use "number" for digits.
         - Allowed `symbol` values for operators are: "+", "-", "=", "*", "/".
         - Provide reasonable integer values for `x` and `y` coordinates (e.g., between 50 and 500).
         - Use the `count` property if multiple identical items should be drawn (e.g., 3 apples).
         - Use the `value` property for the "number" type.
-        - If no drawing is needed, return JSON with an empty `scene` array: {"explanation": "Your text here", "scene": []}.
+        - If no drawing is needed, return JSON with an empty `scene` array: {"explanation": "Your text here", "scene": [], "final_answer": {...}}.
         - Do NOT include any text outside the JSON object. Your entire response must be the JSON itself.
         """
         
@@ -265,51 +272,83 @@ def get_answer_from_text(text):
                 result = {
                     "explanation": explanation
                 }
+
+            # Attempt to parse the LLM response as JSON
+            try:
+                parsed_json = json.loads(llm_response_content)
                 
-       # Attempt to parse the LLM response as JSON
-        try:
-            parsed_json = json.loads(llm_response_content)
-                
-            # Validate the structure
-            if isinstance(parsed_json, dict) and \
+                # Validate the structure
+                if isinstance(parsed_json, dict) and \
                 "explanation" in parsed_json and isinstance(parsed_json["explanation"], str) and \
-                "scene" in parsed_json and isinstance(parsed_json["scene"], list):
+                "scene" in parsed_json and isinstance(parsed_json["scene"], list) and \
+                "final_answer" in parsed_json and isinstance(parsed_json["final_answer"], dict):
+                    
+                    explanation_text = parsed_json["explanation"]
+                    scene_data = parsed_json["scene"]
+                    final_answer = parsed_json["final_answer"]
+                    
+                    # Construct the result in the updated format
+                    result = {
+                        "question": text, # Original user query
+                        "answer": {
+                            "explanation": explanation_text, # Text for TTS
+                            "scene": scene_data, # Scene description for frontend
+                            "final_answer": final_answer # Answer validation information
+                        },
+                        "source_documents": retrieved_docs # Include source documents in the response
+                    }
+                    print(f"Successfully parsed LLM response. Explanation: '{explanation_text[:50]}...', Scene items: {len(scene_data)}")
+                    return result
+                else:
+                    print("Error: LLM response is valid JSON but does not match the expected schema.")
+                    print(f"Received JSON: {llm_response_content}")
+                    
+                    # If missing final_answer but otherwise valid, try to add a default one
+                    if "explanation" in parsed_json and "scene" in parsed_json and "final_answer" not in parsed_json:
+                        print("Adding default final_answer field")
+                        parsed_json["final_answer"] = {
+                            "correct_value": "unknown",
+                            "explanation": "No answer validation information provided",
+                            "feedback_correct": "Good job!",
+                            "feedback_incorrect": "Try again!"
+                        }
+                        
+                        # Return with the added default final_answer
+                        result = {
+                            "question": text,
+                            "answer": {
+                                "explanation": parsed_json["explanation"],
+                                "scene": parsed_json["scene"],
+                                "final_answer": parsed_json["final_answer"]
+                            },
+                            "source_documents": retrieved_docs
+                        }
+                        return result
                 
-                explanation_text = parsed_json["explanation"]
-                scene_data = parsed_json["scene"]
-                
-                # Construct the result in the new format
-                result = {
-                    "question": text, # Original user query
-                    "answer": {
-                        "explanation": explanation_text, # Text for TTS
-                        "scene": scene_data # Scene description for frontend
-                    },
-                    "source_documents": retrieved_docs # Include source documents in the response
-                }
-                print(f"Successfully parsed LLM response. Explanation: '{explanation_text[:50]}...', Scene items: {len(scene_data)}")
-                return result
-            else:
-                print("Error: LLM response is valid JSON but does not match the expected schema.")
-                print(f"Received JSON: {llm_response_content}")
+                # If we got here, the JSON didn't match our expected schema
                 return f"I'm sorry, I received an unexpected response format from the AI model."
                 
-        except json.JSONDecodeError:
-            print("Error: LLM response was not valid JSON.")
-            print(f"Received content: {llm_response_content}")
-            # Fallback: return the raw content as explanation, assuming no scene
-            result = {
-                "question": text,
-                "answer": {
-                    "explanation": llm_response_content, # Use raw response as explanation
-                    "scene": [] # Empty scene
+            except json.JSONDecodeError:
+                print("Error: LLM response was not valid JSON.")
+                print(f"Received content: {llm_response_content}")
+                # Fallback: return the raw content as explanation, assuming no scene
+                result = {
+                    "question": text,
+                    "answer": {
+                        "explanation": llm_response_content, # Use raw response as explanation
+                        "scene": [], # Empty scene
+                        "final_answer": {
+                            "correct_value": "",
+                            "explanation": "",
+                            "feedback_correct": "Good job!",
+                            "feedback_incorrect": "Try again!"
+                        }
+                    }
                 }
-            }
-            return result
+                return result   
         else:
             error_message = response_data.get("error", {}).get("message", "Unknown API error")
-            print(f"OpenRouter API error: {error_message}")
-            return f"I'm sorry, I couldn't process your request. Error: {error_message}"
+            return f"Error: {error_message}"
             
     except Exception as e:
         print(f"Error in get_answer_from_text: {e}")

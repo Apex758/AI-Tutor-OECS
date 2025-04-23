@@ -1,3 +1,4 @@
+// src/App.tsx
 import React, { useState } from "react";
 import Whiteboard from "./components/Whiteboard";
 import SpeechRecognition from "./components/SpeechRecognition";
@@ -11,6 +12,7 @@ const App: React.FC = () => {
   const [transcript, setTranscript] = useState<string>("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState<string>("");
+  const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
   // Toggle sidebar visibility
   const toggleSidebar = () => {
@@ -23,6 +25,13 @@ const App: React.FC = () => {
       // Add a newline if there's already content
       return prev ? `${prev}\n${newText}` : newText;
     });
+    
+    // Check if this is a student answer to a problem
+    if (newText.startsWith("You:") && localStorage.getItem('currentProblemAnswer')) {
+      setIsProcessingAnswer(true);
+      // Reset processing flag after a short delay
+      setTimeout(() => setIsProcessingAnswer(false), 2000);
+    }
   };
 
   // Handle sending chat messages
@@ -33,6 +42,35 @@ const App: React.FC = () => {
     
     // Update the current prompt for the whiteboard component
     setCurrentPrompt(message);
+    
+    // Check if this is a potential answer to a problem
+    const savedProblem = localStorage.getItem('currentProblemAnswer');
+    if (savedProblem && !isProcessingAnswer) {
+      try {
+        // Parse the saved problem
+        const problem = JSON.parse(savedProblem);
+        
+        // Clean and normalize the student answer
+        const studentAnswer = message.trim().toLowerCase();
+        const correctAnswer = String(problem.correct_value).trim().toLowerCase();
+        
+        // Check if the answer is correct
+        const isCorrect = studentAnswer === correctAnswer;
+        
+        // Add appropriate feedback to the transcript
+        setTimeout(() => {
+          const feedback = isCorrect 
+            ? problem.feedback_correct
+            : `${problem.feedback_incorrect} ${isCorrect ? '' : problem.explanation}`;
+          
+          updateTranscript(`PEARL: ${feedback}`);
+        }, 500);
+        
+        return; // Skip the regular response flow
+      } catch (e) {
+        console.error('Error processing saved problem:', e);
+      }
+    }
     
     // Here you would typically add logic to get a response from your backend/AI
     // For now, let's simulate a response after a short delay

@@ -56,8 +56,12 @@ class ScanResponse(BaseModel):
 class RemoveDocumentRequest(BaseModel):
     doc_id: str
 
+class TextOnlyRequest(BaseModel):
+    text: str
+
 # Store conversation history
 conversation_history = []
+
 
 
 @app.post("/tutor/speak")
@@ -123,22 +127,36 @@ async def tutor_from_audio(file: UploadFile = File(...)):
                     if not isinstance(answer, dict):
                         answer = {
                             "question": text,
-                            "answer": answer,
+                            "answer": {
+                                "explanation": answer,
+                                "scene": [],
+                                "final_answer": {
+                                    "correct_value": "",
+                                    "explanation": "",
+                                    "feedback_correct": "Good job!",
+                                    "feedback_incorrect": "Try again!"
+                                }
+                            },
                             "audio": audio_path
                         }
             
             # Update conversation history
-            print("Step 7: Updating conversation history")
             conversation_history.append({"role": "user", "content": text})
             
             # Extract explanation from structured response if available
             if isinstance(response, dict) and isinstance(response.get('answer', {}), dict):
                 explanation = response['answer'].get('explanation', '')
-                conversation_history.append({"role": "assistant", "content": explanation})
+                
+                # Check if there's a final_answer field to include in the conversation history
+                final_answer = response['answer'].get('final_answer', {})
+                if final_answer:
+                    explanation_with_answer = f"{explanation} [ANSWER_INFO: {json.dumps(final_answer)}]"
+                    conversation_history.append({"role": "assistant", "content": explanation_with_answer})
+                else:
+                    conversation_history.append({"role": "assistant", "content": explanation})
             else:
                 conversation_history.append({"role": "assistant", "content": str(response)})
             
-            print("Step 9: Response ready")
             return answer
         
         except Exception as model_error:
@@ -146,27 +164,30 @@ async def tutor_from_audio(file: UploadFile = File(...)):
             error_response = {
                 "error": f"The OpenRouter API encountered an error: {str(model_error)}",
                 "question": text,
-                "answer": "I'm sorry, I had trouble processing your request. The OpenRouter API is currently experiencing issues. Please try again later."
+                "answer": {
+                    "explanation": "I'm sorry, I had trouble processing your request. The OpenRouter API is currently experiencing issues. Please try again later.",
+                    "scene": [],
+                    "final_answer": {
+                        "correct_value": "",
+                        "explanation": "",
+                        "feedback_correct": "",
+                        "feedback_incorrect": ""
+                    }
+                }
             }
 
             print("Generating TTS for error message...")
-            audio_file = generate_tts_audio(error_response["answer"])
+            audio_file = generate_tts_audio(error_response["answer"]["explanation"])
             audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
             error_response["audio"] = audio_path
             print("Error TTS audio at", audio_path)
 
             return error_response
-
+            
     except Exception as e:
-        try:
-            print("Audio Processing Error:", e)
-        except UnicodeEncodeError:
-            # If printing the error directly fails due to encoding, print a safe version
-            safe_error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
-            print(f"Audio Processing Error (safe print): {safe_error_message}")
+        print("Audio Processing Error:", e)
         return {"error": str(e)}
 
-        
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
     """
@@ -181,6 +202,163 @@ async def text_to_speech(request: TTSRequest):
     except Exception as e:
         return {"error": str(e)}
 
+
+
+
+@app.post("/tutor/text")
+async def tutor_from_text(request: TextOnlyRequest):
+    """
+    Process text input from the user, generate a response, and return both text and audio.
+    """
+    try:
+        print("Received text input:", request.text)
+        
+        try:
+            # Get a response based on the text by passing to query model
+            print("Sending text to OpenRouter API...")
+            response = get_answer_from_text(request.text)
+            print("OpenRouter API response:", response)
+            
+            # Check if response is a string (error) or the structured format
+            if isinstance(response, str):
+                # Handle legacy error response format
+                answer = response
+                audio_path = None
+            else:
+                # Handle structured response format
+                answer = response
+                
+                # Check if we have an explanation field in the answer
+                if isinstance(answer, dict) and isinstance(answer.get('answer', {}), dict):
+                    explanation = answer['answer'].get('explanation', '')
+                    
+                    # Check if explanation is a JSON string
+                    try:
+                        explanation_json = json.loads(explanation)
+                        if isinstance(explanation_json, dict) and 'explanation' in explanation_json:
+                            # Use the 'explanation' field from the JSON for TTS
+                            tts_text = explanation_json['explanation']
+                        else:
+                            tts_text = explanation
+                    except json.JSONDecodeError:
+                        tts_text = explanation
+                    
+                    # Use the extracted text for TTS
+                    audio_file = generate_tts_audio(tts_text)
+                    
+                    # Update the audio path in the response
+                    answer['audio'] = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+                else:
+                    # Use the entire response for TTS (fallback for legacy format)
+                    tts_text = str(answer)
+                    audio_file = generate_tts_audio(tts_text)
+                    audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+                    
+                    # If response was not structured, wrap it
+                    if not isinstance(answer, dict):
+                        answer = {
+                            "question": request.text,
+                            "answer": {
+                                "explanation": answer,
+                                "scene": [],
+                                "final_answer": {
+                                    "correct_value": "",
+                                    "explanation": "",
+                                    "feedback_correct": "Good job!",
+                                    "feedback_incorrect": "Try again!"
+                                }
+                            },
+                            "audio": audio_path
+                        }
+            
+            # Update conversation history
+            conversation_history.append({"role": "user", "content": request.text})
+            
+            # Extract explanation from structured response if available
+            if isinstance(response, dict) and isinstance(response.get('answer', {}), dict):
+                explanation = response['answer'].get('explanation', '')
+                
+                # Check if there's a final_answer field to include in the conversation history
+                final_answer = response['answer'].get('final_answer', {})
+                if final_answer:
+                    explanation_with_answer = f"{explanation} [ANSWER_INFO: {json.dumps(final_answer)}]"
+                    conversation_history.append({"role": "assistant", "content": explanation_with_answer})
+                else:
+                    conversation_history.append({"role": "assistant", "content": explanation})
+            else:
+                conversation_history.append({"role": "assistant", "content": str(response)})
+            
+            # Make sure we're returning the fully structured response
+            if isinstance(answer, dict):
+                # Ensure the answer has the required structure
+                if 'answer' not in answer:
+                    answer = {
+                        "question": request.text,
+                        "answer": {
+                            "explanation": str(answer),
+                            "scene": [],
+                            "final_answer": {
+                                "correct_value": "",
+                                "explanation": "",
+                                "feedback_correct": "Good job!",
+                                "feedback_incorrect": "Try again!"
+                            }
+                        }
+                    }
+                elif isinstance(answer['answer'], dict) and 'final_answer' not in answer['answer']:
+                    # Add a default final_answer if missing
+                    answer['answer']['final_answer'] = {
+                        "correct_value": "",
+                        "explanation": "",
+                        "feedback_correct": "Good job!",
+                        "feedback_incorrect": "Try again!"
+                    }
+                
+                # Make sure there's an audio field
+                if 'audio' not in answer:
+                    # Generate TTS for the explanation
+                    explanation = ""
+                    if isinstance(answer['answer'], dict):
+                        explanation = answer['answer'].get('explanation', '')
+                    else:
+                        explanation = str(answer['answer'])
+                    
+                    audio_file = generate_tts_audio(explanation)
+                    answer['audio'] = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+            
+            print("Final structured response ready")
+            return answer
+        
+        except Exception as model_error:
+            print("OpenRouter API Error:", model_error)
+            error_response = {
+                "error": f"The OpenRouter API encountered an error: {str(model_error)}",
+                "question": request.text,
+                "answer": {
+                    "explanation": "I'm sorry, I had trouble processing your request. The OpenRouter API is currently experiencing issues. Please try again later.",
+                    "scene": [],
+                    "final_answer": {
+                        "correct_value": "",
+                        "explanation": "",
+                        "feedback_correct": "",
+                        "feedback_incorrect": ""
+                    }
+                }
+            }
+
+            print("Generating TTS for error message...")
+            audio_file = generate_tts_audio(error_response["answer"]["explanation"])
+            audio_path = f"/tts_output/{audio_file}?t={os.path.getmtime(os.path.join(TTS_OUTPUT_DIR, audio_file))}"
+            error_response["audio"] = audio_path
+            print("Error TTS audio at", audio_path)
+
+            return error_response
+
+    except Exception as e:
+        print("Text Processing Error:", e)
+        return {"error": str(e)}
+    
+    
 @app.post("/update_transcript")
 async def update_transcript(request: TranscriptUpdateRequest):
     """
